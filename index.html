@@ -7436,8 +7436,8 @@ $("kibbutzInvoiceFile").onchange=async e=>{
 /* === Quick add: manual expense entry (Spendee-style) === */
 (function(){
  const css=`
- #qaFab{position:fixed;left:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:900;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
- #qaBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none}
+ #qaFab{position:fixed;left:16px;bottom:calc(98px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:9000;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
+ #qaBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:none}
  #qaBack.open{display:block}
  #qaSheet{position:absolute;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:var(--card);color:var(--text);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
  #qaSheet .qa-seg{display:flex;gap:8px;margin-bottom:10px}
@@ -7449,7 +7449,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  #qaCats button.on{background:var(--primary);color:#fff}
  #qaSheet .qa-row{display:flex;gap:8px;margin-bottom:8px}
  #qaSheet .qa-row input{flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--text)}
- #qaToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:#202431;color:#fff;padding:10px 16px;border-radius:12px;z-index:1100;display:none;font-weight:700}`;
+ #qaToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(170px + env(safe-area-inset-bottom,0px));background:#202431;color:#fff;padding:10px 16px;border-radius:12px;z-index:10001;display:none;font-weight:700}`;
  const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
  const root=document.createElement("div");
  root.innerHTML=`<button id="qaFab" type="button" aria-label="הוסף הוצאה">+</button>
