@@ -3226,7 +3226,7 @@ completion is excluded from all analytical totals, preventing double-counting.
  </div>
 <div class="card" id="creditAuditCard">
    <b>💳 בקרת כרטיסי אשראי</b>
-   <div class="muted tiny" style="margin:6px 0 10px">בקרה מול Spendee בלבד — ללא הוספת הוצאות אוטומטית</div>
+   <div class="muted tiny" style="margin:6px 0 10px">בקרה מול Spendee והוצאות ידניות — ללא הוספת הוצאות אוטומטית</div>
    <div class="credit-wizard" id="creditWizard">
      <b style="font-size:13px">אשף חודשי מקוצר</b>
      <div class="muted tiny" style="margin-top:4px">1) טען קובץ → 2) התאמות אוטומטיות → 3) אשר רק חריגים</div>
@@ -3244,7 +3244,7 @@ completion is excluded from all analytical totals, preventing double-counting.
    <div id="creditAuditSummary" class="hidden" style="margin-top:12px">
      <div class="grid" style="grid-template-columns:repeat(3,1fr)">
        <div class="money-mini"><small>בקובץ</small><b id="creditAuditTotal">0</b></div>
-       <div class="money-mini"><small>התאמה ל־Spendee</small><b id="creditAuditMatched">0</b></div>
+       <div class="money-mini"><small>התאמה</small><b id="creditAuditMatched">0</b></div>
        <div class="money-mini"><small>דורש בדיקה</small><b id="creditAuditUnmatched">0</b></div>
      </div>
      <div id="creditAuditQuestions" style="margin-top:12px"></div>
@@ -4719,12 +4719,12 @@ function auditCandidateLabel(tx){
  if(!tx)return "";return `${(tx.date||"").slice(0,10)} · ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.note||tx.category||"ללא תיאור")}`;
 }
 function auditCandidatesForRow(row,days=5){
- return (state.spendee||[]).filter(x=>(x.type||"").toLowerCase()==="expense")
+ return (state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).filter(x=>(x.type||"").toLowerCase()==="expense")
   .filter(x=>Math.abs(expenseAmount(x)-row.amount)<=0.05 && auditDayDiff((x.date||"").slice(0,10),row.date)<=days);
 }
 function reconcileCreditRows(rows){
  ensureCreditAuditLearning();
- const candidates=(state.spendee||[]).filter(x=>(x.type||"").toLowerCase()==="expense").map((x,i)=>({i,date:(x.date||"").slice(0,10),amount:expenseAmount(x),merchant:normAuditText((x.note||"")+" "+(x.category||"")),raw:x}));
+ const candidates=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).filter(x=>(x.type||"").toLowerCase()==="expense").map((x,i)=>({i,date:(x.date||"").slice(0,10),amount:expenseAmount(x),merchant:normAuditText((x.note||"")+" "+(x.category||"")),raw:x}));
  const used=new Set();
  return rows.map(row=>{
    const learned=auditRuleForMerchant(row.merchant);
@@ -4773,7 +4773,7 @@ function setCreditAuditCategory(idx,category,learn=true){
 }
 function setCreditAuditMatch(idx,spendeeKey){
  const r=state.creditCardAudit?.rows?.[idx];if(!r)return;
- const tx=(state.spendee||[]).find(x=>txKey(x)===spendeeKey);if(!tx)return;
+ const tx=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).find(x=>txKey(x)===spendeeKey);if(!tx)return;
  r.status="matched";r.match=tx;r.possibleMatches=[];if(!r.auditCategory)r.auditCategory=mapCat(tx.category);save();renderCreditAudit();
 }
 function markCreditAuditReported(idx){const r=state.creditCardAudit?.rows?.[idx];if(!r)return;r.status="manual-reported";r.match=null;save();renderCreditAudit();}
@@ -5108,7 +5108,7 @@ function allTx(){
   rows = rows.map(x => {
     if(!x) return x;
     let out = x;
-    if(x?.source === "Spendee"){
+    if(x?.source === "Spendee" || x?.source === "ידני"){
       const c = correctionForRawTx(x);
       if(c){
         out = {...x};
@@ -7373,9 +7373,10 @@ function renderKibbutzInvoicePreview(inv){
    </div>`;
  }).join("");
  $("kibbutzInvoicePreview").innerHTML=`<div style="margin-top:10px"><b>חשבונית מתאריך ${inv.iso.split("-").reverse().join("/")}</b> · ${inv.items.length} שורות · ₪${sum.toFixed(2)}</div>${warn}${rowsHtml}
-   <div id="kibInvSum" class="muted tiny" style="margin-top:8px"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" id="kibInvApply">הוסף לתנועות</button><button type="button" class="secondary" id="kibInvCancel">ביטול</button></div>`;
+   <div id="kibInvSum" class="muted tiny" style="margin-top:8px"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" id="kibInvApply">הוסף לתנועות</button><button type="button" class="secondary" id="kibInvRules">שמור כללים בלבד</button><button type="button" class="secondary" id="kibInvCancel">ביטול</button></div>`;
  $("kibInvCancel").onclick=()=>{_kibInv=null;$("kibbutzInvoicePreview").innerHTML=""};
  $("kibInvApply").onclick=applyKibbutzInvoice;
+ $("kibInvRules").onclick=saveKibbutzRulesOnly;
  $("kibbutzInvoicePreview").onchange=kibUpdateSum;
  kibUpdateSum();
 }
@@ -7385,6 +7386,17 @@ function kibUpdateSum(){
  let inc=0,exc=0;
  inv.items.forEach((it,i)=>{if(sels[i]&&sels[i].value==="__skip__")exc+=it.total;else inc+=it.total});
  el.textContent=`ייספרו: ₪${inc.toFixed(2)} · לא ייספרו: ₪${exc.toFixed(2)}`;
+}
+function saveKibbutzRulesOnly(){
+ const inv=_kibInv; if(!inv) return;
+ const sels=[...document.querySelectorAll("#kibbutzInvoicePreview select[data-kib]")];
+ state.kibbutzRules=state.kibbutzRules||{};
+ let n=0;
+ inv.items.forEach((it,i)=>{const v=sels[i]&&sels[i].value; if(v){state.kibbutzRules[kibRuleKey(it.desc)]=v;n++}});
+ if(!n) return alert("לא נבחרה אף קטגוריה.");
+ save();
+ _kibInv=null; $("kibbutzInvoicePreview").innerHTML="";
+ const st=$("kibbutzImportStatus"); if(st) st.textContent=`נשמרו ${n} כללים. לא נוספו תנועות.`;
 }
 function applyKibbutzInvoice(){
  const inv=_kibInv; if(!inv) return;
@@ -7420,6 +7432,142 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  catch(err){alert("לא ניתן לקרוא את החשבונית: "+err.message); if(st) st.textContent="טרם יובא קובץ קיבוץ.";}
  finally{e.target.value=""}
 };
+
+/* === Quick add: manual expense entry (Spendee-style) === */
+(function(){
+ const css=`
+ #qaFab{position:fixed;left:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:900;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
+ #qaBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none}
+ #qaBack.open{display:block}
+ #qaSheet{position:absolute;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:var(--card);color:var(--text);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+ #qaSheet .qa-seg{display:flex;gap:8px;margin-bottom:10px}
+ #qaSheet .qa-seg button{flex:1}
+ #qaSheet .qa-seg button:not(.on){background:#eef0f8;color:#4b3d78}
+ #qaAmt{width:100%;font-size:34px;font-weight:800;text-align:center;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:14px;background:transparent;color:var(--text)}
+ #qaCats{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;max-height:34vh;overflow:auto}
+ #qaCats button{background:#eef0f8;color:#4b3d78;padding:9px 12px;border-radius:999px;font-size:14px}
+ #qaCats button.on{background:var(--primary);color:#fff}
+ #qaSheet .qa-row{display:flex;gap:8px;margin-bottom:8px}
+ #qaSheet .qa-row input{flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--text)}
+ #qaToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:#202431;color:#fff;padding:10px 16px;border-radius:12px;z-index:1100;display:none;font-weight:700}`;
+ const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
+ const root=document.createElement("div");
+ root.innerHTML=`<button id="qaFab" type="button" aria-label="הוסף הוצאה">+</button>
+ <div id="qaBack"><div id="qaSheet">
+  <div class="qa-seg"><button type="button" data-t="Expense" class="on">הוצאה</button><button type="button" data-t="Income">הכנסה</button></div>
+  <input id="qaAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₪ 0">
+  <div id="qaCats"></div>
+  <div class="qa-row"><input id="qaDate" type="date"><button type="button" class="secondary" id="qaYest">אתמול</button></div>
+  <div class="qa-row"><input id="qaNote" placeholder="הערה (לא חובה)"></div>
+  <div class="qa-row" style="align-items:center"><label style="display:flex;gap:6px;align-items:center;flex:1"><input type="checkbox" id="qaRec" style="flex:none;width:20px;height:20px"> 🔁 חוזרת כל חודש</label><span id="qaRecDayWrap" style="display:none;align-items:center;gap:6px">ב־<input id="qaRecDay" type="number" min="1" max="31" style="width:64px;flex:none">לחודש</span></div>
+  <div class="qa-row"><button type="button" id="qaSave" style="flex:2;padding:13px">שמור</button><button type="button" class="secondary" id="qaMore" style="flex:1">שמור והוסף עוד</button><button type="button" class="secondary" id="qaClose">סגור</button></div>
+  <details id="qaRecBox"><summary>🔁 הוצאות חוזרות</summary><div id="qaRecList"></div></details>
+ </div></div><div id="qaToast"></div>`;
+ document.body.appendChild(root);
+ const q=id=>document.getElementById(id);
+ let type="Expense", cat="", tt=0, dayTouched=false;
+ const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+ function toast(m){const t=q("qaToast");t.textContent=m;t.style.display="block";clearTimeout(tt);tt=setTimeout(()=>t.style.display="none",2200)}
+ function catList(){
+   const since=Date.now()-90*864e5, cnt={}, seen=new Set();
+   (state.spendee||[]).concat(state.manual||[]).forEach(x=>{
+     if(x.type!==type||!x.category) return;
+     seen.add(x.category);
+     if(new Date(x.date).getTime()>=since) cnt[x.category]=(cnt[x.category]||0)+1;
+   });
+   if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>seen.add(c));
+   return [...seen].sort((a,b)=>(cnt[b]||0)-(cnt[a]||0)||a.localeCompare(b,"he"));
+ }
+ function drawCats(){
+   q("qaCats").innerHTML=catList().map(c=>`<button type="button" data-c="${kibEsc(c)}"${c===cat?' class="on"':""}>${kibEsc(c)}</button>`).join("");
+ }
+ function openSheet(){
+   type="Expense"; cat="";
+   root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
+   q("qaAmt").value=""; q("qaNote").value=""; q("qaDate").value=ymd(new Date());
+   q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); setTimeout(()=>q("qaAmt").focus(),50);
+ }
+ function runRecurring(noRender){
+   if(typeof state==="undefined"||!state||!Array.isArray(state.recurring)||!state.recurring.length) return false;
+   state.manual=Array.isArray(state.manual)?state.manual:[];
+   let changed=false; const have=new Set(), out=[];
+   state.manual.forEach(x=>{ if(x.recKey){ if(have.has(x.recKey)){changed=true;return} have.add(x.recKey) } out.push(x) });
+   if(changed) state.manual=out;
+   const today=ymd(new Date());
+   state.recurring.forEach(r=>{
+     r.done=Array.isArray(r.done)?r.done:[];
+     let [y,m]=String(r.start).split("-").map(Number);
+     for(let n=0;n<240&&y&&m;n++){
+       const ym=y+"-"+String(m).padStart(2,"0");
+       const day=Math.min(r.day,new Date(y,m,0).getDate());
+       const ds=ym+"-"+String(day).padStart(2,"0");
+       if(ds>today) break;
+       if(!r.done.includes(ym)){
+         r.done.push(ym);
+         const key=r.id+"|"+ym;
+         if(!have.has(key)){
+           state.manual.push({date:ds+"T12:00:00",type:r.type,category:r.category,amount:r.type==="Expense"?-r.amount:r.amount,note:r.note||"",source:"ידני",recKey:key});
+           have.add(key);
+         }
+         changed=true;
+       }
+       m++; if(m>12){m=1;y++}
+     }
+   });
+   if(changed){ save(); if(!noRender){buildMonths(); render();} }
+   return changed;
+ }
+ function drawRecList(){
+   const list=Array.isArray(state.recurring)?state.recurring:[];
+   q("qaRecBox").querySelector("summary").textContent="🔁 הוצאות חוזרות"+(list.length?` (${list.length})`:"");
+   q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b> · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
+ }
+ function closeSheet(){q("qaBack").classList.remove("open")}
+ function commit(more){
+   const a=Number(q("qaAmt").value);
+   if(!(a>0)){q("qaAmt").focus();return}
+   if(!cat){toast("בחר קטגוריה");return}
+   const d=q("qaDate").value||ymd(new Date());
+   state.manual=Array.isArray(state.manual)?state.manual:[];
+   const note=q("qaNote").value.trim();
+   const tx={date:d+"T12:00:00",type,category:cat,amount:type==="Expense"?-a:a,note,source:"ידני"};
+   state.manual.push(tx);
+   let recDay=0;
+   if(q("qaRec").checked){
+     recDay=Math.min(31,Math.max(1,Number(q("qaRecDay").value)||Number(d.slice(8,10))));
+     const rid="r"+Date.now().toString(36), ym=d.slice(0,7);
+     state.recurring=Array.isArray(state.recurring)?state.recurring:[];
+     state.recurring.push({id:rid,type,category:cat,amount:a,note,day:recDay,start:ym,done:[ym]});
+     tx.recKey=rid+"|"+ym;
+     runRecurring(true);
+   }
+   save(); buildMonths(); render();
+   toast(`נוסף ₪${a.toFixed(2)} · ${cat}`+(recDay?` · חוזרת ב־${recDay} לחודש`:""));
+   if(more){q("qaAmt").value="";q("qaNote").value="";cat="";drawCats();q("qaAmt").focus()} else closeSheet();
+ }
+ q("qaRec").onchange=()=>{
+   q("qaRecDayWrap").style.display=q("qaRec").checked?"flex":"none";
+   if(q("qaRec").checked&&!dayTouched) q("qaRecDay").value=Number((q("qaDate").value||ymd(new Date())).slice(8,10));
+ };
+ q("qaRecDay").oninput=()=>{dayTouched=true};
+ q("qaDate").onchange=()=>{if(q("qaRec").checked&&!dayTouched) q("qaRecDay").value=Number((q("qaDate").value||"").slice(8,10))||q("qaRecDay").value};
+ q("qaRecList").onclick=e=>{
+   const b=e.target.closest("button[data-rid]"); if(!b) return;
+   if(!confirm("להפסיק את ההוצאה החוזרת? תנועות שכבר נוצרו יישארו.")) return;
+   state.recurring=(state.recurring||[]).filter(r=>r.id!==b.dataset.rid);
+   save(); drawRecList();
+ };
+ setTimeout(()=>runRecurring(false),2500);
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden) runRecurring(false)});
+ q("qaFab").onclick=openSheet;
+ q("qaClose").onclick=closeSheet;
+ q("qaBack").onclick=e=>{if(e.target===q("qaBack"))closeSheet()};
+ q("qaSave").onclick=()=>commit(false);
+ q("qaMore").onclick=()=>commit(true);
+ q("qaYest").onclick=()=>{const d=new Date();d.setDate(d.getDate()-1);q("qaDate").value=ymd(d)};
+ q("qaCats").onclick=e=>{const b=e.target.closest("button[data-c]");if(!b)return;cat=b.dataset.c;drawCats()};
+ root.querySelectorAll(".qa-seg button").forEach(b=>b.onclick=()=>{type=b.dataset.t;cat="";root.querySelectorAll(".qa-seg button").forEach(x=>x.classList.toggle("on",x===b));drawCats()});
+})();
 
 $("backupFile").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{
  let restored=JSON.parse(r.result);
@@ -9122,7 +9270,7 @@ if ("serviceWorker" in navigator) {
 
   setCreditAuditMatch=function(idx,spendeeKey){
     const r=state.creditCardAudit?.rows?.[idx];if(!r)return;
-    const tx=(state.spendee||[]).find(x=>txKey(x)===spendeeKey);if(!tx)return;
+    const tx=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).find(x=>txKey(x)===spendeeKey);if(!tx)return;
     r.match=tx;r.matchKey=spendeeKey;r.possibleMatches=[];r.finderOpen=false;
     const diff=Math.abs(expenseAmount(tx)-r.amount);
     r.status=diff<=0.05?"matched":"matched-review";
@@ -9332,7 +9480,7 @@ if ("serviceWorker" in navigator) {
   reconcileCreditRows=function(rows){
     ensureCreditAuditLearning();
     state.creditMatchRules=state.creditMatchRules||{};
-    const candidates=(state.spendee||[]).filter(x=>(x.type||"").toLowerCase()==="expense")
+    const candidates=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).filter(x=>(x.type||"").toLowerCase()==="expense")
       .map((x,i)=>({i,date:(x.date||"").slice(0,10),amount:expenseAmount(x),
         merchant:normAuditText((x.note||"")+" "+(x.category||"")),raw:x}));
     const used=new Set();
@@ -9390,7 +9538,7 @@ if ("serviceWorker" in navigator) {
   const alpha10SetCreditAuditMatch=setCreditAuditMatch;
   setCreditAuditMatch=function(idx,spendeeKey){
     const r=state.creditCardAudit?.rows?.[idx];
-    const tx=(state.spendee||[]).find(x=>txKey(x)===spendeeKey);
+    const tx=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).find(x=>txKey(x)===spendeeKey);
     alpha10SetCreditAuditMatch(idx,spendeeKey);
     if(r&&tx){
       saveCreditMatchRule(r,tx);
@@ -9447,7 +9595,7 @@ function categorySearchTerms(category){
 function txRelated(tx,cat){const terms=categorySearchTerms(cat);if(!terms.length)return false;const raw=normAuditText(`${tx.category||""} ${mapCat(tx.category||"")} ${tx.note||""}`);return terms.some(t=>raw.includes(t)||t.includes(raw))}
 function pool(idx,q="",allMode=false){
  const row=state.creditCardAudit?.rows?.[idx];if(!row)return[];q=normAuditText(q);
- const all=(state.spendee||[]).filter(x=>(x.type||"").toLowerCase()==="expense");let arr=all;
+ const all=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).filter(x=>(x.type||"").toLowerCase()==="expense");let arr=all;
  if(q)arr=all.filter(x=>normAuditText(`${x.note||""} ${x.category||""} ${mapCat(x.category||"")}`).includes(q));
  else if(!allMode&&row.auditCategory){const rel=all.filter(x=>txRelated(x,row.auditCategory));arr=rel.length?rel:all}
  else if(!allMode)arr=all.filter(x=>auditDayDiff((x.date||"").slice(0,10),row.date)<=62);
@@ -9494,7 +9642,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
  function alpha13Pool(idx,q="",allMode=false){
    const row=state.creditCardAudit?.rows?.[idx];if(!row)return[];
    q=normAuditText(q);
-   const every=(state.spendee||[]).filter(x=>(x.type||"").toLowerCase()==="expense");
+   const every=(state.spendee||[]).concat((state.manual||[]).filter(x=>x.source==="ידני")).filter(x=>(x.type||"").toLowerCase()==="expense");
    let arr=every;
 
    if(q){
