@@ -7017,6 +7017,7 @@ function saveMonthlyGoals(){
  save();render();
 }
 function budgetCatIcon(name){
+ const ci=state&&state.settings&&state.settings.catIcons&&state.settings.catIcons[name]; if(ci) return ci;
  const n=norm(name);
  if(/קיבוץ/.test(n)) return "🏘️";
  if(/שכירות|שכר דירה|דיור/.test(n)) return "🏠";
@@ -7444,9 +7445,15 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  #qaSheet .qa-seg button{flex:1}
  #qaSheet .qa-seg button:not(.on){background:#eef0f8;color:#4b3d78}
  #qaAmt{width:100%;font-size:34px;font-weight:800;text-align:center;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:14px;background:transparent;color:var(--text)}
- #qaCats{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;max-height:34vh;overflow:auto}
- #qaCats button{background:#eef0f8;color:#4b3d78;padding:9px 12px;border-radius:999px;font-size:14px}
- #qaCats button.on{background:var(--primary);color:#fff}
+ #qaCats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px 4px;margin:12px 0;max-height:40vh;overflow:auto}
+ #qaCats .qc{background:none;border:0;padding:0;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--text);font-size:11px;font-weight:600;line-height:1.15}
+ #qaCats .qc i{font-style:normal;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:21px;box-sizing:border-box;border:2px solid transparent}
+ #qaCats .qc.on i{border-color:var(--primary)}
+ #qaCats .qc.on span{color:var(--primary);font-weight:800}
+ #qaCats .qc span{max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+ #qaNewBox{display:none;border:1px dashed var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
+ #qaNewBox .qa-emo{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+ #qaNewBox .qa-emo button{background:#eef0f8;width:34px;height:34px;padding:0;font-size:18px;border-radius:50%}
  #qaSheet .qa-row{display:flex;gap:8px;margin-bottom:8px}
  #qaSheet .qa-row input{flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--text)}
  #qaToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(170px + env(safe-area-inset-bottom,0px));background:#202431;color:#fff;padding:10px 16px;border-radius:12px;z-index:10001;display:none;font-weight:700}`;
@@ -7457,6 +7464,11 @@ $("kibbutzInvoiceFile").onchange=async e=>{
   <div class="qa-seg"><button type="button" data-t="Expense" class="on">הוצאה</button><button type="button" data-t="Income">הכנסה</button></div>
   <input id="qaAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₪ 0">
   <div id="qaCats"></div>
+  <div id="qaNewBox">
+   <div class="qa-row"><input id="qaNewName" placeholder="שם קטגוריה חדשה"><input id="qaNewEmoji" placeholder="אייקון" style="flex:none;width:80px;text-align:center"></div>
+   <div class="qa-emo">${["🛒","🍽️","🚗","🏠","💊","🎁","👕","📱","🎓","🎮","🐶","✈️","☕","🧴","🔧","💼"].map(e=>`<button type="button" data-e="${e}">${e}</button>`).join("")}</div>
+   <div class="qa-row" style="margin-bottom:0"><button type="button" id="qaNewOk" style="flex:2">הוסף קטגוריה</button><button type="button" class="secondary" id="qaNewCancel" style="flex:1">ביטול</button></div>
+  </div>
   <div class="qa-row"><input id="qaDate" type="date"><button type="button" class="secondary" id="qaYest">אתמול</button></div>
   <div class="qa-row"><input id="qaNote" placeholder="הערה (לא חובה)"></div>
   <div class="qa-row" style="align-items:center"><label style="display:flex;gap:6px;align-items:center;flex:1"><input type="checkbox" id="qaRec" style="flex:none;width:20px;height:20px"> 🔁 חוזרת כל חודש</label><span id="qaRecDayWrap" style="display:none;align-items:center;gap:6px">ב־<input id="qaRecDay" type="number" min="1" max="31" style="width:64px;flex:none">לחודש</span></div>
@@ -7476,16 +7488,20 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      if(new Date(x.date).getTime()>=since) cnt[x.category]=(cnt[x.category]||0)+1;
    });
    if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>seen.add(c));
+   else ((state.settings&&state.settings.extraIncomeCats)||[]).forEach(c=>seen.add(c));
    return [...seen].sort((a,b)=>(cnt[b]||0)-(cnt[a]||0)||a.localeCompare(b,"he"));
  }
  function drawCats(){
-   q("qaCats").innerHTML=catList().map(c=>`<button type="button" data-c="${kibEsc(c)}"${c===cat?' class="on"':""}>${kibEsc(c)}</button>`).join("");
+   const ic=c=>{const v=typeof budgetCatIcon==="function"?budgetCatIcon(c):"🏷️"; return (type==="Income"&&v==="🏷️")?"💵":v};
+   const co=c=>typeof categoryChipColor==="function"?categoryChipColor(c):"#eef0f8";
+   q("qaCats").innerHTML=catList().map(c=>`<button type="button" class="qc${c===cat?" on":""}" data-c="${kibEsc(c)}"><i style="background:${co(c)}">${ic(c)}</i><span>${kibEsc(c)}</span></button>`).join("")
+     +`<button type="button" class="qc" data-new="1"><i style="background:#eef0f8">➕</i><span>חדשה</span></button>`;
  }
  function openSheet(){
    type="Expense"; cat="";
    root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
    q("qaAmt").value=""; q("qaNote").value=""; q("qaDate").value=ymd(new Date());
-   q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); setTimeout(()=>q("qaAmt").focus(),50);
+   q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); setTimeout(()=>q("qaAmt").focus(),50);
  }
  function runRecurring(noRender){
    if(typeof state==="undefined"||!state||!Array.isArray(state.recurring)||!state.recurring.length) return false;
@@ -7565,7 +7581,29 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  q("qaSave").onclick=()=>commit(false);
  q("qaMore").onclick=()=>commit(true);
  q("qaYest").onclick=()=>{const d=new Date();d.setDate(d.getDate()-1);q("qaDate").value=ymd(d)};
- q("qaCats").onclick=e=>{const b=e.target.closest("button[data-c]");if(!b)return;cat=b.dataset.c;drawCats()};
+ q("qaCats").onclick=e=>{
+   const n=e.target.closest("button[data-new]");
+   if(n){q("qaNewBox").style.display="block";q("qaNewName").focus();return}
+   const b=e.target.closest("button[data-c]");if(!b)return;cat=b.dataset.c;drawCats();
+ };
+ q("qaNewBox").onclick=e=>{const b=e.target.closest("button[data-e]");if(b)q("qaNewEmoji").value=b.dataset.e};
+ q("qaNewCancel").onclick=()=>{q("qaNewBox").style.display="none"};
+ q("qaNewOk").onclick=()=>{
+   const name=norm(q("qaNewName").value); if(!name){q("qaNewName").focus();return}
+   const em=q("qaNewEmoji").value.trim();
+   state.settings=state.settings||{};
+   if(type==="Expense"){
+     state.settings.budgets=state.settings.budgets||{};
+     if(state.settings.budgets[name]===undefined) state.settings.budgets[name]=0;
+   }else{
+     state.settings.extraIncomeCats=Array.isArray(state.settings.extraIncomeCats)?state.settings.extraIncomeCats:[];
+     if(!state.settings.extraIncomeCats.includes(name)) state.settings.extraIncomeCats.push(name);
+   }
+   if(em){state.settings.catIcons=state.settings.catIcons||{}; state.settings.catIcons[name]=em}
+   cat=name; save();
+   q("qaNewBox").style.display="none"; q("qaNewName").value=""; q("qaNewEmoji").value="";
+   drawCats(); toast("נוספה קטגוריה: "+name);
+ };
  root.querySelectorAll(".qa-seg button").forEach(b=>b.onclick=()=>{type=b.dataset.t;cat="";root.querySelectorAll(".qa-seg button").forEach(x=>x.classList.toggle("on",x===b));drawCats()});
 })();
 
