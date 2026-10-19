@@ -2873,6 +2873,17 @@ completion is excluded from all analytical totals, preventing double-counting.
     </div>
   </section>
 
+<details id="transactionsBreakdown" class="app-accordion" open>
+    <summary>תנועות החודש <span id="count"></span></summary>
+    <div class="accordion-body scroll">
+      <input type="text" id="rc25TxSearch" name="rc25-tx-filter" class="history-tx-search" placeholder="חיפוש תנועה — קטגוריה, הערה או סכום" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')">
+      <div id="rc25TxList" class="rc25-recent-tx"></div>
+      <div class="history-empty" id="rc25TxSearchEmpty" style="display:none">לא נמצאו תנועות תואמות</div>
+      <button id="rc25ShowAllTx" type="button" class="rc25-show-all">הצג את כל התנועות</button>
+      <table class="hidden"><tbody id="tbody"></tbody></table>
+    </div>
+  </details>
+
 <details id="financeBreakdown" class="app-accordion" open>
     <summary id="financeBreakdownTitle">📊 הוצאות בפועל לפי קטגוריה</summary>
     <div class="accordion-body">
@@ -2886,17 +2897,6 @@ completion is excluded from all analytical totals, preventing double-counting.
       <div id="incomeView" class="hidden">
         <div id="incomeCats" class="cats"></div>
       </div>
-    </div>
-  </details>
-
-  <details id="transactionsBreakdown" class="app-accordion" open>
-    <summary>תנועות החודש <span id="count"></span></summary>
-    <div class="accordion-body scroll">
-      <input type="text" id="rc25TxSearch" name="rc25-tx-filter" class="history-tx-search" placeholder="חיפוש תנועה — קטגוריה, הערה או סכום" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')">
-      <div id="rc25TxList" class="rc25-recent-tx"></div>
-      <div class="history-empty" id="rc25TxSearchEmpty" style="display:none">לא נמצאו תנועות תואמות</div>
-      <button id="rc25ShowAllTx" type="button" class="rc25-show-all">הצג את כל התנועות</button>
-      <table class="hidden"><tbody id="tbody"></tbody></table>
     </div>
   </details>
 
@@ -7463,6 +7463,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  const root=document.createElement("div");
  root.innerHTML=`<button id="qaFab" type="button" aria-label="הוסף הוצאה">+</button>
  <div id="qaBack"><div id="qaSheet">
+  <div id="qaTitle" style="display:none;font-weight:900;font-size:18px;margin-bottom:8px"></div>
   <div class="qa-seg"><button type="button" data-t="Expense" class="on">הוצאה</button><button type="button" data-t="Income">הכנסה</button></div>
   <input id="qaAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₪ 0">
   <div id="qaCats"></div>
@@ -7473,13 +7474,13 @@ $("kibbutzInvoiceFile").onchange=async e=>{
   </div>
   <div class="qa-row"><input id="qaDate" type="date"><button type="button" class="secondary" id="qaYest">אתמול</button></div>
   <div class="qa-row"><input id="qaNote" placeholder="הערה (לא חובה)"></div>
-  <div class="qa-row" style="align-items:center"><label style="display:flex;gap:6px;align-items:center;flex:1"><input type="checkbox" id="qaRec" style="flex:none;width:20px;height:20px"> 🔁 חוזרת כל חודש</label><span id="qaRecDayWrap" style="display:none;align-items:center;gap:6px">ב־<input id="qaRecDay" type="number" min="1" max="31" style="width:64px;flex:none">לחודש</span></div>
-  <div class="qa-row"><button type="button" id="qaSave" style="flex:2;padding:13px">שמור</button><button type="button" class="secondary" id="qaMore" style="flex:1">שמור והוסף עוד</button><button type="button" class="secondary" id="qaClose">סגור</button></div>
+  <div class="qa-row" id="qaRecRow" style="align-items:center"><label style="display:flex;gap:6px;align-items:center;flex:1"><input type="checkbox" id="qaRec" style="flex:none;width:20px;height:20px"> 🔁 חוזרת כל חודש</label><span id="qaRecDayWrap" style="display:none;align-items:center;gap:6px">ב־<input id="qaRecDay" type="number" min="1" max="31" style="width:64px;flex:none">לחודש</span></div>
+  <div class="qa-row"><button type="button" id="qaSave" style="flex:2;padding:13px">שמור</button><button type="button" class="secondary" id="qaMore" style="flex:1">שמור והוסף עוד</button><button type="button" class="danger" id="qaDel" style="display:none;flex:1"></button><button type="button" class="secondary" id="qaClose">סגור</button></div>
   <details id="qaRecBox"><summary>🔁 הוצאות חוזרות</summary><div id="qaRecList"></div></details>
  </div></div><div id="qaToast"></div>`;
  document.body.appendChild(root);
  const q=id=>document.getElementById(id);
- let type="Expense", cat="", tt=0, dayTouched=false;
+ let type="Expense", cat="", tt=0, dayTouched=false, edit=null, editCat="";
  const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
  function toast(m){const t=q("qaToast");t.textContent=m;t.style.display="block";clearTimeout(tt);tt=setTimeout(()=>t.style.display="none",2200)}
  function catList(){
@@ -7491,6 +7492,8 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    });
    if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>seen.add(c));
    else ((state.settings&&state.settings.extraIncomeCats)||[]).forEach(c=>seen.add(c));
+   if(editCat) seen.add(editCat);
+   if(edit && type==="Expense" && typeof availableTxCategories==="function") availableTxCategories(editCat).forEach(c=>seen.add(c));
    return [...seen].sort((a,b)=>(cnt[b]||0)-(cnt[a]||0)||a.localeCompare(b,"he"));
  }
  function drawCats(){
@@ -7500,6 +7503,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      +`<button type="button" class="qc" data-new="1"><i style="background:#eef0f8">➕</i><span>חדשה</span></button>`;
  }
  function openSheet(){
+   edit=null; editCat=""; setEditUi(false);
    type="Expense"; cat="";
    root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
    q("qaAmt").value=""; q("qaNote").value=""; q("qaDate").value=ymd(new Date());
@@ -7540,8 +7544,82 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    q("qaRecBox").querySelector("summary").textContent="🔁 הוצאות חוזרות"+(list.length?` (${list.length})`:"");
    q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b> · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
  }
- function closeSheet(){q("qaBack").classList.remove("open")}
+ function setEditUi(on,spendee){
+   q("qaTitle").style.display=on?"block":"none";
+   q("qaTitle").textContent=on?(spendee?"עריכת תנועה (מיובאת מספנדי — אפשר לשנות קטגוריה וסכום)":"עריכת תנועה"):"";
+   q("qaRecRow").style.display=on?"none":"";
+   q("qaRecBox").style.display=on?"none":"";
+   q("qaMore").style.display=on?"none":"";
+   q("qaYest").style.display=on?"none":"";
+   q("qaSave").textContent=on?"שמור שינויים":"שמור";
+   const lock=!!(on&&spendee);
+   q("qaDate").disabled=lock; q("qaNote").disabled=lock;
+   root.querySelectorAll(".qa-seg button").forEach(b=>{b.style.pointerEvents=lock?"none":""; b.style.opacity=lock?".5":""});
+   if(!on) q("qaDel").style.display="none";
+ }
+ function openEdit(encKey){
+   let sk=encKey; try{sk=decodeURIComponent(encKey)}catch(e){}
+   const f=typeof findRawTxByStableKey==="function"?findRawTxByStableKey(sk):null;
+   if(!f||f.virtual) return false;
+   const tx=f.tx, shown=(typeof allTx==="function"&&allTx().find(t=>stableTxKey(t)===sk))||tx;
+   const spendee=f.source!=="manual";
+   edit={sk,spendee,row:spendee?null:tx};
+   type=String(tx.type||"").toLowerCase()==="income"?"Income":"Expense";
+   cat=mapCat(shown.category||tx.category||""); editCat=cat;
+   root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
+   q("qaAmt").value=String(Number(Math.abs(Number(shown.amount||tx.amount||0)).toFixed(2)));
+   q("qaDate").value=String(tx.date||"").slice(0,10);
+   q("qaNote").value=tx.note||"";
+   q("qaNewBox").style.display="none";
+   setEditUi(true,spendee);
+   const hasOv=!!((state.categoryOverrides&&state.categoryOverrides[sk]!==undefined)||(state.amountOverrides&&state.amountOverrides[sk]!==undefined));
+   const del=q("qaDel"); del.style.display=(!spendee||hasOv)?"":"none"; del.textContent=spendee?"בטל עריכות":"מחק";
+   drawCats(); q("qaBack").classList.add("open");
+   return true;
+ }
+ function afterEdit(msg){
+   if(typeof invalidateAllTxCache==="function") invalidateAllTxCache();
+   save(); buildMonths(); render();
+   try{ if(typeof renderInsurancePage==="function") renderInsurancePage(); }catch(e){}
+   closeSheet(); toast(msg);
+ }
+ function commitEdit(){
+   const raw=q("qaAmt").value, a=Number(raw);
+   if(raw===""||!isFinite(a)||a<0){q("qaAmt").focus();return}
+   if(!cat){toast("בחר קטגוריה");return}
+   state.categoryOverrides=state.categoryOverrides||{}; state.amountOverrides=state.amountOverrides||{};
+   const sk=edit.sk;
+   if(edit.spendee){
+     state.categoryOverrides[sk]=cat; state.amountOverrides[sk]=Math.abs(a);
+   }else{
+     const row=edit.row;
+     delete state.categoryOverrides[sk]; delete state.amountOverrides[sk];
+     row.type=type; row.category=cat;
+     row.amount=type==="Expense"?-Math.abs(a):Math.abs(a);
+     const d=q("qaDate").value;
+     if(d&&d!==String(row.date||"").slice(0,10)) row.date=d+"T12:00:00";
+     row.note=q("qaNote").value.trim();
+   }
+   afterEdit("התנועה עודכנה");
+ }
+ function delOrRevert(){
+   if(!edit) return;
+   const sk=edit.sk;
+   if(edit.spendee){
+     if(state.categoryOverrides) delete state.categoryOverrides[sk];
+     if(state.amountOverrides) delete state.amountOverrides[sk];
+     return afterEdit("העריכות בוטלו");
+   }
+   if(!confirm("למחוק את התנועה?")) return;
+   const row=edit.row;
+   state.manual=(state.manual||[]).filter(x=>x!==row);
+   if(state.categoryOverrides) delete state.categoryOverrides[sk];
+   if(state.amountOverrides) delete state.amountOverrides[sk];
+   afterEdit("התנועה נמחקה");
+ }
+ function closeSheet(){q("qaBack").classList.remove("open"); edit=null; editCat=""}
  function commit(more){
+   if(edit){commitEdit();return}
    const a=Number(q("qaAmt").value);
    if(!(a>0)){q("qaAmt").focus();return}
    if(!cat){toast("בחר קטגוריה");return}
@@ -7577,6 +7655,12 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  };
  setTimeout(()=>runRecurring(false),2500);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden) runRecurring(false)});
+ q("qaDel").onclick=delOrRevert;
+ const prevOpen=window._origOpenTxEditor||window.openTxEditor;
+ window._origOpenTxEditor=prevOpen;
+ const mineOpen=function(k){ try{ if(openEdit(k)) return; }catch(err){ console.error(err); } if(prevOpen) prevOpen(k); };
+ window.openTxEditor=mineOpen;
+ window.addEventListener("load",()=>{ if(window.openTxEditor!==mineOpen) window.openTxEditor=mineOpen; });
  q("qaFab").onclick=openSheet;
  q("qaClose").onclick=closeSheet;
  q("qaBack").onclick=e=>{if(e.target===q("qaBack"))closeSheet()};
@@ -8443,7 +8527,7 @@ if ("serviceWorker" in navigator) {
       <span class="rc25-tx-icon">${transactionIcon(cat)}</span>
       <div class="rc25-tx-main"><b>${escapeHtml(note||cat)}</b><small>${escapeHtml(cat)}${date?` · ${date.slice(8,10)}-${date.slice(5,7)}`:""}</small></div>
       <span class="rc25-tx-amount" style="${isIncome?"color:#0d7a4f":""}">${isIncome?"+":"-"}${amount}</span>
-      ${ck?`<button type="button" class="rc25-tx-classify" title="סיווג הוצאה" onclick="event.stopPropagation();classifyTx('${ck}')">⋯</button>`:""}
+      
     </div>`;
   }
 
