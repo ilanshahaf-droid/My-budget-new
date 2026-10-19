@@ -2890,7 +2890,7 @@ completion is excluded from all analytical totals, preventing double-counting.
   <details id="transactionsBreakdown" class="app-accordion" open>
     <summary>תנועות החודש <span id="count"></span></summary>
     <div class="accordion-body scroll">
-      <input type="text" id="rc25TxSearch" class="history-tx-search" placeholder="חיפוש תנועה — קטגוריה, הערה או סכום" autocomplete="off">
+      <input type="text" id="rc25TxSearch" name="rc25-tx-filter" class="history-tx-search" placeholder="חיפוש תנועה — קטגוריה, הערה או סכום" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')">
       <div id="rc25TxList" class="rc25-recent-tx"></div>
       <div class="history-empty" id="rc25TxSearchEmpty" style="display:none">לא נמצאו תנועות תואמות</div>
       <button id="rc25ShowAllTx" type="button" class="rc25-show-all">הצג את כל התנועות</button>
@@ -3166,8 +3166,8 @@ completion is excluded from all analytical totals, preventing double-counting.
   <div id="rc29LastSync" class="rc29-last-sync"></div>
 
   <div id="cloudLoginBox" class="cloud-login">
-   <input id="cloudEmail" type="email" placeholder="אימייל">
-   <input id="cloudPassword" type="password" placeholder="סיסמה">
+   <input id="cloudEmail" type="email" placeholder="אימייל" autocomplete="username">
+   <input id="cloudPassword" type="password" placeholder="סיסמה" autocomplete="current-password">
    <button onclick="cloudLogin()">התחבר</button>
   </div>
 
@@ -8476,7 +8476,13 @@ if ("serviceWorker" in navigator) {
   function setupTxListControls(){
     const search=document.getElementById("rc25TxSearch");
     if(search && !search.dataset.ready){
-      search.addEventListener("input",()=>{ rc25SearchQuery=search.value; renderTransactionsList(); });
+      // Chrome may autofill a saved e-mail into this box (the login fields are hidden once
+      // connected). Only treat the text as a search if the user actually typed it.
+      const guard=()=>{ if(!search.dataset.typed && search.value){ search.value=""; if(rc25SearchQuery){ rc25SearchQuery=""; renderTransactionsList(); } } };
+      ["keydown","beforeinput","paste","compositionstart"].forEach(ev=>search.addEventListener(ev,()=>{ search.dataset.typed="1"; }));
+      search.addEventListener("input",()=>{ if(!search.dataset.typed){ guard(); return; } rc25SearchQuery=search.value; renderTransactionsList(); });
+      search.addEventListener("change",guard);
+      [400,1500,3500].forEach(t=>setTimeout(guard,t));
       search.dataset.ready="1";
     }
     const btn=document.getElementById("rc25ShowAllTx");
