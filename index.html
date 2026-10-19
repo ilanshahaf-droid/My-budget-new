@@ -1827,7 +1827,8 @@ header{display:none!important}
 #budgetPage>#transactionsBreakdown[open],
 #budgetPage>#expectedExpensesBreakdown[open]{display:block!important;margin-top:6px!important}
 /* keep the transactions section visible even when collapsed, so it can be reopened */
-#budgetPage>#transactionsBreakdown{display:block!important;margin-top:6px!important}
+#budgetPage>#transactionsBreakdown,
+#budgetPage>#financeBreakdown{display:block!important;margin-top:6px!important}
 
 .modern-month-dashboard{direction:rtl;display:grid;gap:16px;padding-bottom:18px}
 .modern-topbar{
@@ -7439,7 +7440,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
 /* === Quick add: manual expense entry (Spendee-style) === */
 (function(){
  const css=`
- #qaFab{position:fixed;left:16px;bottom:calc(98px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:9000;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
+ #qaFab{position:fixed;right:16px;bottom:calc(98px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:9000;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
  #qaBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:none}
  #qaBack.open{display:block}
  #qaSheet{position:absolute;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:var(--card);color:var(--text);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
