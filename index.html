@@ -2563,6 +2563,18 @@ Synthetic rows such as "השלמת מאי 2026 לפי צילום Overview" are r
 exists for the same month and mapped category. If detailed Spendee data exists, the synthetic
 completion is excluded from all analytical totals, preventing double-counting.
 -->
+<style id="qaTxStyle">
+#rc25TxList .qday{display:flex;justify-content:space-between;align-items:baseline;direction:ltr;padding:14px 6px 6px;font-size:14px;font-weight:700;color:var(--muted)}
+#rc25TxList .qday .qd{unicode-bidi:plaintext;text-align:left}
+#rc25TxList .qgroup{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:2px 12px}
+#rc25TxList .qrow{display:flex;align-items:center;gap:10px;direction:ltr;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+#rc25TxList .qrow:last-child{border-bottom:0}
+#rc25TxList .qicon{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px}
+#rc25TxList .qmain{flex:1;min-width:0;display:flex;flex-direction:column;text-align:left}
+#rc25TxList .qmain b{font-size:15px;font-weight:700;color:var(--text);unicode-bidi:plaintext;text-align:left}
+#rc25TxList .qmain small{font-size:12px;color:var(--muted);unicode-bidi:plaintext;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rc25TxList .qamt{flex:none;font-weight:800;font-size:16px;color:var(--text);direction:ltr}
+</style>
 </head>
 <body>
 <header><div class="wrap"><h1>מנהל התקציב שלי</h1><div class="sub">V4.2 · ממוקד</div></div></header>
@@ -8522,14 +8534,35 @@ if ("serviceWorker" in navigator) {
     });
   }
 
+  function qaNum(row){ const v=Number(String(row.amount).replace(/[^\d.]/g,""))||0; return row.isIncome?v:-v; }
+  function qaSigned(n){ return (n<0?"-":(n>0?"+":""))+Math.abs(n).toLocaleString("en-US",{maximumFractionDigits:2}); }
+  function qaDayLabel(d){
+    const dt=new Date(Number(d.slice(0,4)),Number(d.slice(5,7))-1,Number(d.slice(8,10)));
+    return isNaN(dt)?d:dt.toLocaleDateString("he-IL",{weekday:"short",day:"numeric",month:"long"});
+  }
+
   function rc25RowHtml(row){
-    const {cat,note,date,amount,source,isIncome,sk,ck}=row;
-    return `<div class="rc25-tx-row"${sk?` onclick="openTxEditor('${sk}')" role="button" tabindex="0"`:""}>
-      <span class="rc25-tx-icon">${transactionIcon(cat)}</span>
-      <div class="rc25-tx-main"><b>${escapeHtml(note||cat)}</b><small>${escapeHtml(cat)}${date?` · ${date.slice(8,10)}-${date.slice(5,7)}`:""}</small></div>
-      <span class="rc25-tx-amount" style="${isIncome?"color:#0d7a4f":""}">${isIncome?"+":"-"}${amount}</span>
-      
+    const {cat,note,amount,isIncome,sk}=row;
+    let icon=typeof budgetCatIcon==="function"?budgetCatIcon(cat):"🏷️";
+    if(isIncome&&icon==="🏷️") icon="💵";
+    const bg=typeof categoryChipColor==="function"?categoryChipColor(cat):"#f3f1fa";
+    const num=String(amount).replace(/[₪\s]/g,"");
+    const sub=note&&note!==cat?note:"";
+    return `<div class="qrow"${sk?` onclick="openTxEditor('${sk}')" role="button" tabindex="0"`:""}>
+      <span class="qicon" style="background:${bg}">${icon}</span>
+      <div class="qmain"><b dir="auto">${escapeHtml(cat)}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
+      <span class="qamt" dir="ltr">₪ ${isIncome?"+":"-"}${escapeHtml(num)}</span>
     </div>`;
+  }
+
+  // Group rows by day (rows arrive sorted by date, newest first) with a daily net total.
+  function qaGroups(list){
+    const groups=[]; let cur=null;
+    list.forEach(r=>{
+      if(!cur||cur.date!==r.date){ cur={date:r.date,rows:[],sum:0}; groups.push(cur); }
+      cur.rows.push(r); cur.sum+=qaNum(r);
+    });
+    return groups.map(g=>`<div class="qday"><span class="qd">${escapeHtml(qaDayLabel(g.date))}</span><span class="qs" dir="ltr">₪ ${qaSigned(g.sum)}</span></div><div class="qgroup">${g.rows.map(rc25RowHtml).join("")}</div>`).join("");
   }
 
   function renderTransactionsList(){
@@ -8542,16 +8575,22 @@ if ("serviceWorker" in navigator) {
 
     if(q){
       const matches=rows.filter(r=>r.searchText.includes(q));
-      list.innerHTML=matches.map(rc25RowHtml).join("");
+      list.innerHTML=qaGroups(matches);
       if(emptyEl) emptyEl.style.display=matches.length?"none":"";
       if(btn) btn.style.display="none";
       return;
     }
     if(emptyEl) emptyEl.style.display="none";
-    const shown=rc25ShowAll?rows:rows.slice(0,RC25_PREVIEW_COUNT);
-    list.innerHTML=shown.length?shown.map(rc25RowHtml).join("") : '<div class="muted" style="padding:12px">אין תנועות להצגה</div>';
+    // Preview: the latest days, always completing the last day so daily totals match what is shown.
+    let preview=[], n=0, lastDate="";
+    for(const r of rows){
+      if(n>=RC25_PREVIEW_COUNT && r.date!==lastDate) break;
+      preview.push(r); n++; lastDate=r.date;
+    }
+    const shown=rc25ShowAll?rows:preview;
+    list.innerHTML=shown.length?qaGroups(shown):'<div class="muted" style="padding:12px">אין תנועות להצגה</div>';
     if(btn){
-      if(rows.length>RC25_PREVIEW_COUNT){
+      if(rows.length>preview.length){
         btn.style.display="";
         btn.textContent=rc25ShowAll?"הסתר תנועות":`הצג את כל ${rows.length} התנועות`;
       }else{
