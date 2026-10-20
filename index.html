@@ -2566,7 +2566,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 <style id="qaTxStyle">
 #rc25TxList .qday{display:flex;justify-content:space-between;align-items:baseline;direction:ltr;padding:14px 6px 6px;font-size:14px;font-weight:700;color:var(--muted)}
 #rc25TxList .qday .qd{unicode-bidi:plaintext;text-align:left}
-#rc25TxList .qgroup{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:2px 12px}
+#rc25TxList .qgroup{background:#fff;border:0;border-radius:16px;padding:2px 12px;box-shadow:0 1px 2px rgba(16,24,40,.06)}
 #rc25TxList .qrow{display:flex;align-items:center;gap:10px;direction:ltr;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
 #rc25TxList .qrow:last-child{border-bottom:0}
 #rc25TxList .qicon{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px}
@@ -2574,6 +2574,10 @@ completion is excluded from all analytical totals, preventing double-counting.
 #rc25TxList .qmain b{font-size:15px;font-weight:700;color:var(--text);unicode-bidi:plaintext;text-align:left}
 #rc25TxList .qmain small{font-size:12px;color:var(--muted);unicode-bidi:plaintext;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #rc25TxList .qamt{flex:none;font-weight:800;font-size:16px;color:var(--text);direction:ltr}
+#rc25TxList .qamt.qin{color:#15803d}
+#budgetPage>#transactionsBreakdown{background:#eef0f3!important;border:0!important;box-shadow:none!important}
+#budgetPage>#transactionsBreakdown .accordion-body{padding:0 12px 12px!important}
+#transactionsBreakdown .history-tx-search{background:#fff;border-color:transparent}
 </style>
 </head>
 <body>
@@ -8551,7 +8555,7 @@ if ("serviceWorker" in navigator) {
     return `<div class="qrow"${sk?` onclick="openTxEditor('${sk}')" role="button" tabindex="0"`:""}>
       <span class="qicon" style="background:${bg}">${icon}</span>
       <div class="qmain"><b dir="auto">${escapeHtml(cat)}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
-      <span class="qamt" dir="ltr">₪ ${isIncome?"+":"-"}${escapeHtml(num)}</span>
+      <span class="qamt${isIncome?" qin":""}" dir="ltr">₪ ${isIncome?"+":"-"}${escapeHtml(num)}</span>
     </div>`;
   }
 
