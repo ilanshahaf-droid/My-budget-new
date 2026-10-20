@@ -7477,12 +7477,15 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  #qaFab{position:fixed;right:16px;bottom:calc(98px + env(safe-area-inset-bottom,0px));width:58px;height:58px;border-radius:50%;font-size:32px;line-height:1;z-index:9000;box-shadow:0 6px 18px rgba(0,0,0,.28);padding:0}
  #qaBack{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:none}
  #qaBack.open{display:block}
- #qaSheet{position:absolute;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:var(--card);color:var(--text);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+ #qaSheet{position:absolute;left:0;right:0;bottom:0;max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--card);color:var(--text);border-radius:20px 20px 0 0;padding:16px 16px 0}
+ #qaTop{flex:none;padding-bottom:4px}
+ #qaScroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+ #qaActions{position:sticky;bottom:0;z-index:2;background:var(--card);margin:0!important;padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
  #qaSheet .qa-seg{display:flex;gap:8px;margin-bottom:10px}
  #qaSheet .qa-seg button{flex:1}
  #qaSheet .qa-seg button:not(.on){background:#eef0f8;color:#4b3d78}
  #qaAmt{width:100%;font-size:34px;font-weight:800;text-align:center;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:14px;background:transparent;color:var(--text)}
- #qaCats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px 4px;margin:12px 0;max-height:40vh;overflow:auto}
+ #qaCats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px 4px;margin:12px 0}
  #qaCats .qc{background:none;border:0;padding:0;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--text);font-size:11px;font-weight:600;line-height:1.15}
  #qaCats .qc i{font-style:normal;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:21px;box-sizing:border-box;border:2px solid transparent}
  #qaCats .qc.on i{border-color:var(--primary)}
@@ -7497,10 +7500,11 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
  const root=document.createElement("div");
  root.innerHTML=`<button id="qaFab" type="button" aria-label="הוסף הוצאה">+</button>
- <div id="qaBack"><div id="qaSheet">
+ <div id="qaBack"><div id="qaSheet"><div id="qaTop">
   <div id="qaTitle" style="display:none;font-weight:900;font-size:18px;margin-bottom:8px"></div>
   <div class="qa-seg"><button type="button" data-t="Expense" class="on">הוצאה</button><button type="button" data-t="Income">הכנסה</button></div>
   <input id="qaAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₪ 0">
+  </div><div id="qaScroll">
   <div id="qaCats"></div>
   <div id="qaNewBox">
    <div class="qa-row"><input id="qaNewName" placeholder="שם קטגוריה חדשה"><input id="qaNewEmoji" placeholder="אייקון" style="flex:none;width:80px;text-align:center"></div>
@@ -7510,8 +7514,9 @@ $("kibbutzInvoiceFile").onchange=async e=>{
   <div class="qa-row"><input id="qaDate" type="date"><button type="button" class="secondary" id="qaYest">אתמול</button></div>
   <div class="qa-row"><input id="qaNote" placeholder="הערה (לא חובה)"></div>
   <div class="qa-row" id="qaRecRow" style="align-items:center"><label style="display:flex;gap:6px;align-items:center;flex:1"><input type="checkbox" id="qaRec" style="flex:none;width:20px;height:20px"> 🔁 חוזרת כל חודש</label><span id="qaRecDayWrap" style="display:none;align-items:center;gap:6px">ב־<input id="qaRecDay" type="number" min="1" max="31" style="width:64px;flex:none">לחודש</span></div>
-  <div class="qa-row"><button type="button" id="qaSave" style="flex:2;padding:13px">שמור</button><button type="button" class="secondary" id="qaMore" style="flex:1">שמור והוסף עוד</button><button type="button" class="danger" id="qaDel" style="display:none;flex:1"></button><button type="button" class="secondary" id="qaClose">סגור</button></div>
   <details id="qaRecBox"><summary>🔁 הוצאות חוזרות</summary><div id="qaRecList"></div></details>
+  <div class="qa-row" id="qaActions"><button type="button" id="qaSave" style="flex:2;padding:13px">שמור</button><button type="button" class="secondary" id="qaMore" style="flex:1">שמור והוסף עוד</button><button type="button" class="danger" id="qaDel" style="display:none;flex:1"></button><button type="button" class="secondary" id="qaClose">סגור</button></div>
+  </div>
  </div></div><div id="qaToast"></div>`;
  document.body.appendChild(root);
  const q=id=>document.getElementById(id);
@@ -7542,7 +7547,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    type="Expense"; cat="";
    root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
    q("qaAmt").value=""; q("qaNote").value=""; q("qaDate").value=ymd(new Date());
-   q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); setTimeout(()=>q("qaAmt").focus(),50);
+   q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0; setTimeout(()=>q("qaAmt").focus(),50);
  }
  function runRecurring(noRender){
    if(typeof state==="undefined"||!state||!Array.isArray(state.recurring)||!state.recurring.length) return false;
@@ -7609,7 +7614,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    setEditUi(true,spendee);
    const hasOv=!!((state.categoryOverrides&&state.categoryOverrides[sk]!==undefined)||(state.amountOverrides&&state.amountOverrides[sk]!==undefined));
    const del=q("qaDel"); del.style.display=(!spendee||hasOv)?"":"none"; del.textContent=spendee?"בטל עריכות":"מחק";
-   drawCats(); q("qaBack").classList.add("open");
+   drawCats(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0;
    return true;
  }
  function afterEdit(msg){
