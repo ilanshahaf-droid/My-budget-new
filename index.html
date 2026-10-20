@@ -5032,10 +5032,28 @@ function ingestCSV(text){
  const existingKeys=new Set(state.spendee.map(txKey));
  let skipped=0;
  out=unique.filter(x=>{const k=txKey(x);if(existingKeys.has(k)){skipped++;return false}existingKeys.add(k);return true});
+  // Transition period: skip Spendee rows that were already entered by hand in this app
+  // (same day, type, category and amount), matched one-to-one so identical purchases stay separate.
+  let manualMatched=0;
+  {
+    const pool=new Map();
+    (state.manual||[]).forEach(m=>{
+      if(m.source!=="ידני") return;
+      const d=String(m.date||"").slice(0,10); if(d<lo||d>hi) return;
+      const k=[d,String(m.type||"").toLowerCase(),norm(mapCat(m.category||"")),Math.abs(Number(m.amount||0)).toFixed(2)].join("|");
+      pool.set(k,(pool.get(k)||0)+1);
+    });
+    out=out.filter(x=>{
+      const k=[String(x.date).slice(0,10),String(x.type||"").toLowerCase(),norm(x.category),Math.abs(Number(x.amount||0)).toFixed(2)].join("|");
+      const c=pool.get(k)||0;
+      if(c>0){pool.set(k,c-1);manualMatched++;return false}
+      return true;
+    });
+  }
  state.spendee=state.spendee.concat(out);
  state.lastImport={when:new Date().toISOString(),lo,hi,count:out.length,removed,skipped,mode:monthlySummary?"monthly-replace":"range-replace",newCategories:newCatsAdded};
  save();buildMonths();render();
- if($("importStatus")) $("importStatus").textContent=`ייבוא הושלם: ${out.length} תנועות נוספו, ${removed} רשומות ישנות הוחלפו${skipped?`, ${skipped} כפילויות דולגו`:""}${newCatsAdded.length?`, ${newCatsAdded.length} קטגוריות חדשות נוספו אוטומטית (${newCatsAdded.join(", ")})`:""}.`;
+ if($("importStatus")) $("importStatus").textContent=`ייבוא הושלם: ${out.length} תנועות נוספו, ${removed} רשומות ישנות הוחלפו${skipped?`, ${skipped} כפילויות דולגו`:""}${manualMatched?`, ${manualMatched} דולגו כי כבר הוזנו ידנית באפליקציה`:""}${newCatsAdded.length?`, ${newCatsAdded.length} קטגוריות חדשות נוספו אוטומטית (${newCatsAdded.join(", ")})`:""}.`;
 }
 
 function updateUndoSpendeeButton(){
