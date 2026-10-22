@@ -8723,6 +8723,14 @@ if ("serviceWorker" in navigator) {
     clearTimeout(timer);
     timer=setTimeout(run,40);
   }
+  // The shared DOM observer looks for a *global* scheduleRun, which used to be private to this
+  // closure, so the transactions list was only built once on load and never followed the month.
+  window.scheduleRun=scheduleRun;
+  if(typeof window.render==="function" && !window.render.__rc25Hook){
+    const prevRender=window.render;
+    window.render=function(){ const r=prevRender.apply(this,arguments); try{ scheduleRun(); }catch(e){} return r; };
+    window.render.__rc25Hook=true;
+  }
 
   window.addEventListener("load",()=>{const go=()=>setTimeout(run,0); if(typeof requestIdleCallback==="function") requestIdleCallback(go,{timeout:2000}); else setTimeout(run,600);});
 })();
