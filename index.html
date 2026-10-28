@@ -2579,6 +2579,18 @@ completion is excluded from all analytical totals, preventing double-counting.
 #budgetPage>#transactionsBreakdown .accordion-body{padding:0 12px 12px!important}
 #transactionsBreakdown .history-tx-search{background:#fff;border-color:transparent}
 </style>
+<style id="qaExtraStyle">
+.rc35-click{cursor:pointer}
+.rc35-chev{display:inline-block;width:14px;color:var(--primary)}
+.rc35-tx-box{background:#f3f4f8}
+.rc35-tx-list{padding:2px 10px 6px}
+.rc35-tx-item{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.rc35-tx-item:last-child{border-bottom:0}
+.rc35-tx-item .d{flex:none;width:52px;font-size:12px;color:var(--muted)}
+.rc35-tx-item .n{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc35-tx-item.est{cursor:default;opacity:.75}
+.rc35-tx-empty{padding:10px;color:var(--muted);font-size:13px}
+</style>
 </head>
 <body>
 <header><div class="wrap"><h1>מנהל התקציב שלי</h1><div class="sub">V4.2 · ממוקד</div></div></header>
@@ -4671,7 +4683,9 @@ function mapCat(c){
  "חנייה וכבישי אגרה":"תחבורה","קופת חולים – קבוע":"קופת חולים - קבוע","קופת חולים - קבוע":"קופת חולים - קבוע","ביטוחים – ילדים":"ביטוחים - ילדים",
  "טלפון עלמא ויובל":"טלפון","טלפון איילה, עלמא ויובל":"טלפון","כללי":"שונות","אליאקספרס":"קניות לבית"
  };
- return map[c]||c
+ const r=map[c]||c;
+ const rn=(typeof state!=="undefined"&&state&&state.settings&&state.settings.catRenames)||null;
+ return (rn&&rn[r])||r
 }
 function parseCSV(text){
  const rows=[];let row=[],cell="",q=false;
@@ -7491,6 +7505,10 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  #qaCats .qc.on i{border-color:var(--primary)}
  #qaCats .qc.on span{color:var(--primary);font-weight:800}
  #qaCats .qc span{max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+ #qaCats.mg .qc i{outline:2px dashed var(--primary);outline-offset:1px}
+ #qaCatEdit{display:none;border:1px solid var(--primary);border-radius:14px;padding:10px;margin-bottom:10px}
+ #qaCatEdit .qa-emo{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+ #qaCatEdit .qa-emo button{background:#eef0f8;width:34px;height:34px;padding:0;font-size:18px;border-radius:50%}
  #qaNewBox{display:none;border:1px dashed var(--line);border-radius:14px;padding:10px;margin-bottom:10px}
  #qaNewBox .qa-emo{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
  #qaNewBox .qa-emo button{background:#eef0f8;width:34px;height:34px;padding:0;font-size:18px;border-radius:50%}
@@ -7506,6 +7524,14 @@ $("kibbutzInvoiceFile").onchange=async e=>{
   <input id="qaAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="₪ 0">
   </div><div id="qaScroll">
   <div id="qaCats"></div>
+  <div class="qa-row" style="margin-bottom:8px"><button type="button" class="secondary" id="qaManage" style="flex:1">✏️ ערוך / מחק קטגוריות</button></div>
+  <div id="qaCatEdit">
+   <div class="muted tiny" id="qaCeHint" style="margin-bottom:6px"></div>
+   <div class="qa-row"><input id="qaCeName" placeholder="שם הקטגוריה"><input id="qaCeEmoji" placeholder="אייקון" style="flex:none;width:80px;text-align:center"></div>
+   <div class="qa-emo">${["🛒","🍽️","🚗","🏠","💊","🎁","👕","📱","🎓","🎮","🐶","✈️","☕","🧴","🔧","💼"].map(e=>`<button type="button" data-e="${e}">${e}</button>`).join("")}</div>
+   <div class="qa-row" id="qaCeBudgetWrap"><input id="qaCeBudget" type="number" inputmode="decimal" min="0" placeholder="מסגרת חודשית (₪)"></div>
+   <div class="qa-row" style="margin-bottom:0"><button type="button" id="qaCeSave" style="flex:2">שמור</button><button type="button" class="danger" id="qaCeDel" style="flex:1">מחק</button><button type="button" class="secondary" id="qaCeCancel" style="flex:1">ביטול</button></div>
+  </div>
   <div id="qaNewBox">
    <div class="qa-row"><input id="qaNewName" placeholder="שם קטגוריה חדשה"><input id="qaNewEmoji" placeholder="אייקון" style="flex:none;width:80px;text-align:center"></div>
    <div class="qa-emo">${["🛒","🍽️","🚗","🏠","💊","🎁","👕","📱","🎓","🎮","🐶","✈️","☕","🧴","🔧","💼"].map(e=>`<button type="button" data-e="${e}">${e}</button>`).join("")}</div>
@@ -7520,14 +7546,14 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  </div></div><div id="qaToast"></div>`;
  document.body.appendChild(root);
  const q=id=>document.getElementById(id);
- let type="Expense", cat="", tt=0, dayTouched=false, edit=null, editCat="";
+ let type="Expense", cat="", tt=0, dayTouched=false, edit=null, editCat="", manage=false, ceOld="";
  const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
  function toast(m){const t=q("qaToast");t.textContent=m;t.style.display="block";clearTimeout(tt);tt=setTimeout(()=>t.style.display="none",2200)}
  function catList(){
    const since=Date.now()-90*864e5, cnt={}, seen=new Set();
    (state.spendee||[]).concat(state.manual||[]).forEach(x=>{
      if(x.type!==type||!x.category) return;
-     seen.add(x.category);
+     seen.add(type==="Expense"&&typeof mapCat==="function"?mapCat(x.category):x.category);
      if(new Date(x.date).getTime()>=since) cnt[x.category]=(cnt[x.category]||0)+1;
    });
    if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>seen.add(c));
@@ -7539,6 +7565,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  function drawCats(){
    const ic=c=>{const v=typeof budgetCatIcon==="function"?budgetCatIcon(c):"🏷️"; return (type==="Income"&&v==="🏷️")?"💵":v};
    const co=c=>typeof categoryChipColor==="function"?categoryChipColor(c):"#eef0f8";
+   q("qaCats").classList.toggle("mg",manage);
    q("qaCats").innerHTML=catList().map(c=>`<button type="button" class="qc${c===cat?" on":""}" data-c="${kibEsc(c)}"><i style="background:${co(c)}">${ic(c)}</i><span>${kibEsc(c)}</span></button>`).join("")
      +`<button type="button" class="qc" data-new="1"><i style="background:#eef0f8">➕</i><span>חדשה</span></button>`;
  }
@@ -7547,7 +7574,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    type="Expense"; cat="";
    root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
    q("qaAmt").value=""; q("qaNote").value=""; q("qaDate").value=ymd(new Date());
-   q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0; setTimeout(()=>q("qaAmt").focus(),50);
+   manage=false; q("qaManage").textContent="✏️ ערוך / מחק קטגוריות"; q("qaCatEdit").style.display="none"; q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0; setTimeout(()=>q("qaAmt").focus(),50);
  }
  function runRecurring(noRender){
    if(typeof state==="undefined"||!state||!Array.isArray(state.recurring)||!state.recurring.length) return false;
@@ -7610,7 +7637,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    q("qaAmt").value=String(Number(Math.abs(Number(shown.amount||tx.amount||0)).toFixed(2)));
    q("qaDate").value=String(tx.date||"").slice(0,10);
    q("qaNote").value=tx.note||"";
-   q("qaNewBox").style.display="none";
+   q("qaNewBox").style.display="none"; manage=false; q("qaManage").textContent="✏️ ערוך / מחק קטגוריות"; q("qaCatEdit").style.display="none";
    setEditUi(true,spendee);
    const hasOv=!!((state.categoryOverrides&&state.categoryOverrides[sk]!==undefined)||(state.amountOverrides&&state.amountOverrides[sk]!==undefined));
    const del=q("qaDel"); del.style.display=(!spendee||hasOv)?"":"none"; del.textContent=spendee?"בטל עריכות":"מחק";
@@ -7621,6 +7648,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    if(typeof invalidateAllTxCache==="function") invalidateAllTxCache();
    save(); buildMonths(); render();
    try{ if(typeof renderInsurancePage==="function") renderInsurancePage(); }catch(e){}
+   try{ if(typeof window.renderTopChart==="function") window.renderTopChart(); if(typeof window.histRefresh==="function") window.histRefresh(); }catch(e){}
    closeSheet(); toast(msg);
  }
  function commitEdit(){
@@ -7701,6 +7729,101 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  const mineOpen=function(k){ try{ if(openEdit(k)) return; }catch(err){ console.error(err); } if(prevOpen) prevOpen(k); };
  window.openTxEditor=mineOpen;
  window.addEventListener("load",()=>{ if(window.openTxEditor!==mineOpen) window.openTxEditor=mineOpen; });
+
+ const SYS=["תכנית חיסכון","חיסכון"];
+ function setManage(on){
+   manage=on; q("qaManage").textContent=on?"✔ סיום עריכת קטגוריות":"✏️ ערוך / מחק קטגוריות";
+   if(!on) q("qaCatEdit").style.display="none";
+   drawCats();
+ }
+ function catTxs(c){
+   return (typeof allTx==="function"?allTx():[]).filter(x=>{
+     const t=String(x.type||"").toLowerCase(); if(t!==type.toLowerCase()) return false;
+     const cc=type==="Expense"&&typeof mapCat==="function"?mapCat(x.category):x.category;
+     return cc===c;
+   });
+ }
+ function openCatEdit(c){
+   ceOld=c; const s=state.settings=state.settings||{};
+   q("qaCeName").value=c;
+   const own=s.catIcons&&s.catIcons[c];
+   q("qaCeEmoji").value=own||""; q("qaCeEmoji").placeholder=typeof budgetCatIcon==="function"?budgetCatIcon(c):"אייקון";
+   const exp=type==="Expense";
+   q("qaCeBudgetWrap").style.display=exp?"":"none";
+   q("qaCeBudget").value=exp&&s.budgets&&s.budgets[c]!==undefined?Number(s.budgets[c])||0:"";
+   q("qaCeHint").textContent=`עריכת "${c}" · ${catTxs(c).length} תנועות בקטגוריה`;
+   q("qaCatEdit").style.display="block";
+   q("qaCatEdit").scrollIntoView({block:"nearest"});
+ }
+ function moveCategory(old,nn,t){
+   const s=state.settings=state.settings||{};
+   if(t==="Expense"){
+     s.catRenames=s.catRenames||{};
+     Object.keys(s.catRenames).forEach(k=>{if(s.catRenames[k]===old) s.catRenames[k]=nn});
+     s.catRenames[old]=nn;
+   }
+   (state.manual||[]).forEach(m=>{
+     const same=String(m.type||"").toLowerCase()===t.toLowerCase();
+     if(same&&(m.category===old||(t==="Expense"&&typeof mapCat==="function"&&mapCat(m.category)===old))) m.category=nn;
+   });
+   Object.keys(state.categoryOverrides||{}).forEach(k=>{if(state.categoryOverrides[k]===old) state.categoryOverrides[k]=nn});
+   Object.keys(state.kibbutzRules||{}).forEach(k=>{if(state.kibbutzRules[k]===old) state.kibbutzRules[k]=nn});
+   (state.recurring||[]).forEach(r=>{if(r.category===old&&r.type===t) r.category=nn});
+ }
+ function finishCatChange(msg){
+   if(typeof invalidateAllTxCache==="function") invalidateAllTxCache();
+   save(); buildMonths(); render();
+   try{ if(typeof window.renderTopChart==="function") window.renderTopChart(); }catch(e){}
+   q("qaCatEdit").style.display="none"; drawCats(); toast(msg);
+ }
+ function saveCatEdit(){
+   const old=ceOld, nn=norm(q("qaCeName").value); if(!old) return;
+   if(!nn){q("qaCeName").focus();return}
+   const s=state.settings=state.settings||{}, exp=type==="Expense";
+   if(SYS.includes(norm(old))){toast("זו קטגוריה מערכתית ולא ניתן לערוך אותה");return}
+   if(nn!==old){
+     if(catList().includes(nn)){toast("כבר קיימת קטגוריה בשם הזה");return}
+     if(!exp&&catTxs(old).some(x=>x.source!=="ידני"&&x.source!=="קיבוץ")){toast("הכנסה שמגיעה מספנדי לא ניתנת לשינוי שם");return}
+   }
+   if(exp){
+     s.budgets=s.budgets||{};
+     const b=Number(q("qaCeBudget").value), had=s.budgets[old]!==undefined;
+     if(nn!==old&&had){s.budgets[nn]=s.budgets[old]; delete s.budgets[old]}
+     if(q("qaCeBudget").value!==""&&Number.isFinite(b)&&(had||b>0)) s.budgets[nn]=b;
+   }else if(nn!==old){
+     s.extraIncomeCats=(s.extraIncomeCats||[]).map(c=>c===old?nn:c);
+   }
+   s.catIcons=s.catIcons||{};
+   const em=q("qaCeEmoji").value.trim();
+   if(nn!==old&&s.catIcons[old]!==undefined){s.catIcons[nn]=s.catIcons[old]; delete s.catIcons[old]}
+   if(em) s.catIcons[nn]=em;
+   if(nn!==old){ moveCategory(old,nn,type); if(cat===old) cat=nn; if(editCat===old) editCat=nn; }
+   finishCatChange("הקטגוריה עודכנה");
+ }
+ function delCatEdit(){
+   const old=ceOld; if(!old) return;
+   const s=state.settings=state.settings||{}, exp=type==="Expense", n=catTxs(old).length;
+   if(SYS.includes(norm(old))||old==="שונות"){toast("לא ניתן למחוק קטגוריה מערכתית");return}
+   if(exp){
+     const msg=n?`בקטגוריה "${old}" יש ${n} תנועות. למחוק אותה ולהעביר את התנועות ל"שונות"?`:`למחוק את הקטגוריה "${old}"?`;
+     if(!confirm(msg)) return;
+     if(s.budgets) delete s.budgets[old];
+     if(n) moveCategory(old,"שונות","Expense");
+     if(s.catIcons) delete s.catIcons[old];
+   }else{
+     if(n){toast(`יש ${n} תנועות בהכנסה הזו. שנה להן קטגוריה בעריכת התנועה ורק אז מחק`);return}
+     if(!confirm(`למחוק את הקטגוריה "${old}"?`)) return;
+     s.extraIncomeCats=(s.extraIncomeCats||[]).filter(c=>c!==old);
+     if(s.catIcons) delete s.catIcons[old];
+   }
+   if(cat===old) cat="";
+   finishCatChange("הקטגוריה נמחקה");
+ }
+ q("qaManage").onclick=()=>setManage(!manage);
+ q("qaCeSave").onclick=saveCatEdit;
+ q("qaCeDel").onclick=delCatEdit;
+ q("qaCeCancel").onclick=()=>{q("qaCatEdit").style.display="none"};
+ q("qaCatEdit").onclick=e=>{const b=e.target.closest("button[data-e]");if(b)q("qaCeEmoji").value=b.dataset.e};
  q("qaFab").onclick=openSheet;
  q("qaClose").onclick=closeSheet;
  q("qaBack").onclick=e=>{if(e.target===q("qaBack"))closeSheet()};
@@ -7710,7 +7833,9 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  q("qaCats").onclick=e=>{
    const n=e.target.closest("button[data-new]");
    if(n){q("qaNewBox").style.display="block";q("qaNewName").focus();return}
-   const b=e.target.closest("button[data-c]");if(!b)return;cat=b.dataset.c;drawCats();
+   const b=e.target.closest("button[data-c]");if(!b)return;
+   if(manage){openCatEdit(b.dataset.c);return}
+   cat=b.dataset.c;drawCats();
  };
  q("qaNewBox").onclick=e=>{const b=e.target.closest("button[data-e]");if(b)q("qaNewEmoji").value=b.dataset.e};
  q("qaNewCancel").onclick=()=>{q("qaNewBox").style.display="none"};
@@ -8589,7 +8714,7 @@ if ("serviceWorker" in navigator) {
       if(!cur||cur.date!==r.date){ cur={date:r.date,rows:[],sum:0}; groups.push(cur); }
       cur.rows.push(r); cur.sum+=qaNum(r);
     });
-    return groups.map(g=>`<div class="qday"><span class="qd">${escapeHtml(qaDayLabel(g.date))}</span><span class="qs" dir="ltr">₪ ${qaSigned(g.sum)}</span></div><div class="qgroup">${g.rows.map(rc25RowHtml).join("")}</div>`).join("");
+    return groups.map(g=>`<div class="qday"><span class="qd">${escapeHtml(qaDayLabel(g.date))}</span><span class="qs" dir="ltr">₪ ${qaSigned(g.sum)}</span></div><div class="qgroup">${g.rows.slice().reverse().map(rc25RowHtml).join("")}</div>`).join("");
   }
 
   function renderTransactionsList(){
@@ -8907,6 +9032,31 @@ if ("serviceWorker" in navigator) {
     return card;
   }
 
+    function rc35TxListHtml(key,category){
+    const isYear=/^\d{4}$/.test(key), isInc=category.type==="income";
+    const list=(typeof allTx==="function"?allTx():[]).filter(x=>{
+      const k=typeof budgetMonth==="function"?budgetMonth(x):(x.date||"").slice(0,7);
+      if(isYear ? k.slice(0,4)!==key : k!==key) return false;
+      const t=(x.type||"").toLowerCase(); if(t!==category.type) return false;
+      const c=isInc ? (x.category||"") : (typeof mapCat==="function"?mapCat(x.category):x.category);
+      return c===category.name;
+    }).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+    let html=list.map(x=>{
+      const d=String(x.date||"").slice(0,10);
+      const dl=d.slice(8,10)+"/"+d.slice(5,7)+(isYear?"/"+d.slice(2,4):"");
+      const v=isInc?incomeAmount(x):expenseAmount(x);
+      const note=(x.note||"").trim();
+      const sk=typeof stableTxKey==="function"?encodeURIComponent(stableTxKey(x)):"";
+      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${escapeHtml(note||category.name)}</span><b class="${isInc?"rc35-amt-income":"rc35-amt-expense"}">${fmt(v)}</b></div>`;
+    }).join("");
+    if(!isYear && !isInc){
+      const p=(state.expectedExpenses||[]).find(e=>e.autoKibbutz===true && e.month===key && e.kibbutzCategory===category.name && !e.paid);
+      if(p) html+=`<div class="rc35-tx-item est"><span class="d">הערכה</span><span class="n">טרם דווח בפועל</span><b>${fmt(Number(p.amount)||0)}</b></div>`;
+    }
+    if(!html) html='<div class="rc35-tx-empty">אין תנועות</div>';
+    return `<div class="rc35-tx-list">${html}</div>`;
+  }
+
   function rc35RenderDetailList(rows,category){
     const host=document.getElementById("rc35DetailList");
     const titleEl=document.getElementById("rc35DetailTitle");
@@ -8921,6 +9071,9 @@ if ("serviceWorker" in navigator) {
         ? `פירוט במספרים — ${category.name} (${category.type==="income"?"הכנסות":"הוצאות"}) ${scopeLabel}`
         : `פירוט במספרים — ${rc35ChartMode==="income"?"הכנסות":rc35ChartMode==="expenses"?"הוצאות":"הכנסות והוצאות"} ${scopeLabel}`;
     }
+    const catId=category?category.type+":::"+category.name:"";
+    if(window.__rc35OpenCat!==catId){ window.__rc35OpenCat=catId; window.__rc35Open=new Set(); }
+    if(!window.__rc35Open) window.__rc35Open=new Set();
     const lines=rows.map((r,i)=>{
       let valueHtml;
       if(category){
@@ -8930,10 +9083,31 @@ if ("serviceWorker" in navigator) {
       }else{
         valueHtml=`<span class="rc35-amt-pair"><span class="rc35-amt-income">${fmt(r.income)}</span><span class="rc35-amt-sep">·</span><span class="rc35-amt-expense">${fmt(r.expenses)}</span></span>`;
       }
-      return `<div class="rc35-detail-row${i%2?" alt":""}"><span class="rc35-detail-label">${rc35Label(r.key)}</span>${valueHtml}</div>`;
+      if(!category) return `<div class="rc35-detail-row${i%2?" alt":""}"><span class="rc35-detail-label">${rc35Label(r.key)}</span>${valueHtml}</div>`;
+      const open=window.__rc35Open;
+      return `<div class="rc35-detail-row rc35-click${i%2?" alt":""}" data-pk="${r.key}" role="button" tabindex="0"><span class="rc35-detail-label"><span class="rc35-chev">${open.has(r.key)?"▾":"◂"}</span> ${rc35Label(r.key)}</span>${valueHtml}</div><div class="rc35-tx-box" data-box="${r.key}"${open.has(r.key)?"":" hidden"}>${open.has(r.key)?rc35TxListHtml(r.key,category):""}</div>`;
     }).join("");
     const legendHtml = category ? "" : `<div class="rc35-detail-legend"><span><i class="rc32-dot income"></i>הכנסות</span><span><i class="rc32-dot expense"></i>הוצאות</span></div>`;
     host.innerHTML=`${legendHtml}<div class="rc35-detail-list">${lines}</div>`;
+    if(category){
+      host.querySelectorAll(".rc35-click").forEach(row=>{
+        const toggle=()=>{
+          const k=row.dataset.pk, box=host.querySelector('.rc35-tx-box[data-box="'+k+'"]'), set=window.__rc35Open;
+          if(!box) return;
+          if(set.has(k)){ set.delete(k); box.hidden=true; box.innerHTML=""; }
+          else { set.add(k); box.innerHTML=rc35TxListHtml(k,category); box.hidden=false; rc35BindTxItems(box); }
+          const ch=row.querySelector(".rc35-chev"); if(ch) ch.textContent=set.has(k)?"▾":"◂";
+        };
+        row.addEventListener("click",toggle);
+        row.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(); } });
+      });
+      host.querySelectorAll(".rc35-tx-box").forEach(rc35BindTxItems);
+    }
+  }
+  function rc35BindTxItems(box){
+    box.querySelectorAll(".rc35-tx-item[data-sk]").forEach(el=>el.addEventListener("click",()=>{
+      if(typeof window.openTxEditor==="function") window.openTxEditor(el.dataset.sk);
+    }));
   }
 
 
