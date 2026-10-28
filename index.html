@@ -2588,6 +2588,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 .rc35-tx-item:last-child{border-bottom:0}
 .rc35-tx-item .d{flex:none;width:52px;font-size:12px;color:var(--muted)}
 .rc35-tx-item .n{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc35-tx-item b{color:var(--text)}
 .rc35-tx-item.est{cursor:default;opacity:.75}
 .rc35-tx-empty{padding:10px;color:var(--muted);font-size:13px}
 </style>
@@ -7558,6 +7559,8 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    });
    if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>seen.add(c));
    else ((state.settings&&state.settings.extraIncomeCats)||[]).forEach(c=>seen.add(c));
+   const hid=((state.settings&&state.settings.hiddenCats)||{})[type]||[];
+   hid.forEach(c=>{ if(c!==editCat) seen.delete(c); });
    if(editCat) seen.add(editCat);
    if(edit && type==="Expense" && typeof availableTxCategories==="function") availableTxCategories(editCat).forEach(c=>seen.add(c));
    return [...seen].sort((a,b)=>(cnt[b]||0)-(cnt[a]||0)||a.localeCompare(b,"he"));
@@ -7731,6 +7734,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  window.addEventListener("load",()=>{ if(window.openTxEditor!==mineOpen) window.openTxEditor=mineOpen; });
 
  const SYS=["תכנית חיסכון","חיסכון"];
+ function hiddenList(t){const h=(state.settings=state.settings||{}).hiddenCats=(state.settings.hiddenCats||{});return h[t]=Array.isArray(h[t])?h[t]:[]}
  function setManage(on){
    manage=on; q("qaManage").textContent=on?"✔ סיום עריכת קטגוריות":"✏️ ערוך / מחק קטגוריות";
    if(!on) q("qaCatEdit").style.display="none";
@@ -7804,20 +7808,13 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    const old=ceOld; if(!old) return;
    const s=state.settings=state.settings||{}, exp=type==="Expense", n=catTxs(old).length;
    if(SYS.includes(norm(old))||old==="שונות"){toast("לא ניתן למחוק קטגוריה מערכתית");return}
-   if(exp){
-     const msg=n?`בקטגוריה "${old}" יש ${n} תנועות. למחוק אותה ולהעביר את התנועות ל"שונות"?`:`למחוק את הקטגוריה "${old}"?`;
-     if(!confirm(msg)) return;
-     if(s.budgets) delete s.budgets[old];
-     if(n) moveCategory(old,"שונות","Expense");
-     if(s.catIcons) delete s.catIcons[old];
-   }else{
-     if(n){toast(`יש ${n} תנועות בהכנסה הזו. שנה להן קטגוריה בעריכת התנועה ורק אז מחק`);return}
-     if(!confirm(`למחוק את הקטגוריה "${old}"?`)) return;
-     s.extraIncomeCats=(s.extraIncomeCats||[]).filter(c=>c!==old);
-     if(s.catIcons) delete s.catIcons[old];
-   }
+   const msg=n?`למחוק את "${old}" מהדיווח? ${n} התנועות הקיימות יישארו ויוצגו בעבר וניתוח.`:`למחוק את הקטגוריה "${old}"?`;
+   if(!confirm(msg)) return;
+   if(exp&&s.budgets) delete s.budgets[old];
+   if(!exp) s.extraIncomeCats=(s.extraIncomeCats||[]).filter(c=>c!==old);
+   const h=hiddenList(type); if(!h.includes(old)) h.push(old);
    if(cat===old) cat="";
-   finishCatChange("הקטגוריה נמחקה");
+   finishCatChange("הקטגוריה הוסרה מהדיווח");
  }
  q("qaManage").onclick=()=>setManage(!manage);
  q("qaCeSave").onclick=saveCatEdit;
@@ -7851,6 +7848,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      if(!state.settings.extraIncomeCats.includes(name)) state.settings.extraIncomeCats.push(name);
    }
    if(em){state.settings.catIcons=state.settings.catIcons||{}; state.settings.catIcons[name]=em}
+   { const h=hiddenList(type), i=h.indexOf(name); if(i>=0) h.splice(i,1); }
    cat=name; save();
    q("qaNewBox").style.display="none"; q("qaNewName").value=""; q("qaNewEmoji").value="";
    drawCats(); toast("נוספה קטגוריה: "+name);
@@ -9047,7 +9045,7 @@ if ("serviceWorker" in navigator) {
       const v=isInc?incomeAmount(x):expenseAmount(x);
       const note=(x.note||"").trim();
       const sk=typeof stableTxKey==="function"?encodeURIComponent(stableTxKey(x)):"";
-      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${escapeHtml(note||category.name)}</span><b class="${isInc?"rc35-amt-income":"rc35-amt-expense"}">${fmt(v)}</b></div>`;
+      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${escapeHtml(note||category.name)}</span><b>${fmt(v)}</b></div>`;
     }).join("");
     if(!isYear && !isInc){
       const p=(state.expectedExpenses||[]).find(e=>e.autoKibbutz===true && e.month===key && e.kibbutzCategory===category.name && !e.paid);
