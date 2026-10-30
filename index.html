@@ -3201,6 +3201,7 @@ completion is excluded from all analytical totals, preventing double-counting.
    <input id="cloudEmail" type="email" placeholder="אימייל" autocomplete="username">
    <input id="cloudPassword" type="password" placeholder="סיסמה" autocomplete="current-password">
    <button onclick="cloudLogin()">התחבר</button>
+   <button type="button" class="secondary" onclick="cloudLoginGoogle()" style="margin-top:8px;width:100%">🔐 התחבר עם Google</button>
   </div>
 
   <div id="cloudConnectedActions" class="rc29-sync-actions hidden">
@@ -3543,6 +3544,13 @@ async function cloudLogin(){
  if(error){setCloudStatus("ההתחברות נכשלה: "+error.message,"bad");return}
  $("cloudPassword").value="";
  await onCloudSignedIn(data.user);
+}
+async function cloudLoginGoogle(){
+ if(!supabaseClient){alert("ראשית שמור את הגדרת החיבור ל-Supabase.");return}
+ setCloudStatus("מעביר להתחברות עם Google...","warn");
+ // select_account lets you pick the right Google account instead of silently using the last one.
+ const {error}=await supabaseClient.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname,queryParams:{prompt:"select_account"}}});
+ if(error) setCloudStatus("ההתחברות עם Google נכשלה: "+error.message+" (ייתכן שהספק עדיין לא הופעל ב-Supabase)","bad");
 }
 async function cloudLogout(){
  if(supabaseClient) await supabaseClient.auth.signOut();
