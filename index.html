@@ -3611,6 +3611,18 @@ async function uploadStateToCloud(manual=false){
 // cause — another app sharing the same Supabase project, a stray delete, anything).
 // Always snapshots the at-risk local state first, then — only if the incoming data looks
 // drastically smaller than what's already here — asks before actually applying it.
+function localSnapshotOf(obj,reason){
+  const copy=JSON.parse(JSON.stringify(obj)); delete copy.autoBackups;
+  const snap={when:new Date().toISOString(),reason:reason,state:copy};
+  let list=[]; try{ list=JSON.parse(localStorage.getItem("budgetV36_autoBackups")||"[]"); }catch(e){}
+  list.unshift(snap); if(list.length>5) list.length=5;
+  try{ localStorage.setItem("budgetV36_autoBackups",JSON.stringify(list)); }
+  catch(e){ try{ localStorage.setItem("budgetV36_autoBackups",JSON.stringify(list.slice(0,1))); }catch(e2){} }
+  try{ state.autoBackups=list; }catch(e){}
+}
+function budgetTxCount(s){
+  try{ return ((s&&s.spendee)||[]).length+((s&&s.manual)||[]).length; }catch(e){ return 0; }
+}
 function stateRichness(s){
   try{ return JSON.stringify(s).length; }catch(e){ return 0; }
 }
@@ -3619,8 +3631,13 @@ async function safeguardBeforeApplyingCloudState(incomingState){
   const newSize=stateRichness(incomingState);
   const oldLooksReal=oldSize>2000; // below this, there's nothing meaningful at risk yet
   const suspicious=oldLooksReal && newSize<oldSize*0.4;
+  // Always keep a local snapshot when this device holds something the incoming copy may lack
+  // (unsynced edits, or more transactions) — the snapshot is what makes a wrong choice recoverable.
+  try{
+    if(oldLooksReal && (suspicious || hasUnsyncedLocalChanges() || budgetTxCount(state)>budgetTxCount(incomingState)) && typeof window.autoBackupBeforeImport==="function")
+      window.autoBackupBeforeImport("before-cloud-load");
+  }catch(e){}
   if(!suspicious) return true;
-  try{ if(typeof window.autoBackupBeforeImport==="function") window.autoBackupBeforeImport("cloud-sync-safety"); }catch(e){}
   const proceed=confirm(
     "הנתונים שמגיעים מהענן נראים קטנים משמעותית ממה שיש כרגע במכשיר הזה (בערך "+
     Math.round(newSize/1024)+"KB מול "+Math.round(oldSize/1024)+"KB).\n\n"+
@@ -3681,8 +3698,17 @@ async function syncNow(){
  const lastTime=lastCloudSyncAt();
  const localDirty=hasUnsyncedLocalChanges();
  if(localDirty && remoteTime>lastTime){
-   const useLocal=confirm("יש שינויים שלא סונכרנו גם במכשיר הזה וגם בענן.\n\nאישור = שמור את גרסת המכשיר הזה בענן.\nביטול = טען את גרסת הענן למכשיר הזה.");
-   if(useLocal) await uploadStateToCloud(true); else await downloadStateFromCloud(true);
+   const cloudWhen=new Date(row.updated_at||0).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+   const useLocal=confirm("יש שינויים שלא סונכרנו גם במכשיר הזה וגם בענן.\n\n"+
+     "במכשיר הזה: "+budgetTxCount(state)+" תנועות\n"+
+     "בענן: "+budgetTxCount(row.data)+" תנועות (עודכן "+cloudWhen+")\n\n"+
+     "אישור = לשמור את גרסת המכשיר הזה בענן (גרסת הענן תידרס).\n"+
+     "ביטול = לטעון את גרסת הענן למכשיר (מה שבמכשיר יידרס).\n\n"+
+     "לפני ההחלפה נשמר גיבוי אוטומטי של הגרסה שנדרסת (הגדרות ← גיבוי ושחזור).");
+   if(useLocal){
+     try{ localSnapshotOf(row.data,"cloud-before-overwrite"); }catch(e){}
+     await uploadStateToCloud(true);
+   } else await downloadStateFromCloud(true);
    return;
  }
  await autoSyncState("manual");
@@ -10992,7 +11018,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       };
       state.autoBackups = state.autoBackups || [];
       state.autoBackups.unshift(snap);
-      if(state.autoBackups.length>3) state.autoBackups.length=3;
+      if(state.autoBackups.length>5) state.autoBackups.length=5;
       // Persist backups separately too (in case import corrupts main state mid-way)
       try{
         localStorage.setItem("budgetV36_autoBackups", JSON.stringify(state.autoBackups));
@@ -11028,7 +11054,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 
   window.restoreLastAutoBackup = function(){
     try{
-      let list = (state&&state.autoBackups) || JSON.parse(localStorage.getItem("budgetV36_autoBackups")||"[]");
+      let list = (state&&state.autoBackups&&state.autoBackups.length) ? state.autoBackups : JSON.parse(localStorage.getItem("budgetV36_autoBackups")||"[]");
       if(!list.length){ alert("אין גיבוי אוטומטי לשחזור."); return; }
       const snap=list[0];
       if(!confirm("לשחזר את הגיבוי האוטומטי מ-"+new Date(snap.when).toLocaleString("he-IL")+"?")) return;
