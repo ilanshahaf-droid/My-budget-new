@@ -7651,7 +7651,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  function setEditUi(on,spendee){
    q("qaTitle").style.display=on?"block":"none";
    q("qaTitle").textContent=on?(spendee?"עריכת תנועה (מיובאת מספנדי — אפשר לשנות קטגוריה וסכום)":"עריכת תנועה"):"";
-   q("qaRecRow").style.display=on?"none":"";
+   q("qaRecRow").style.display="";
    q("qaRecBox").style.display=on?"none":"";
    q("qaMore").style.display=on?"none":"";
    q("qaYest").style.display=on?"none":"";
@@ -7667,7 +7667,11 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    if(!f||f.virtual) return false;
    const tx=f.tx, shown=(typeof allTx==="function"&&allTx().find(t=>stableTxKey(t)===sk))||tx;
    const spendee=f.source!=="manual";
-   edit={sk,spendee,row:spendee?null:tx};
+   edit={sk,spendee,row:spendee?null:tx,date:String(tx.date||"").slice(0,10),note:tx.note||"",rec:null};
+   try{
+     const rk=!spendee&&tx.recKey?String(tx.recKey).split("|")[0]:"";
+     edit.rec=(state.recurring||[]).find(r=>(rk&&r.id===rk)||(spendee&&r.srcKey===sk))||null;
+   }catch(e){}
    type=String(tx.type||"").toLowerCase()==="income"?"Income":"Expense";
    cat=mapCat(shown.category||tx.category||""); editCat=cat;
    root.querySelectorAll(".qa-seg button").forEach(b=>b.classList.toggle("on",b.dataset.t===type));
@@ -7676,6 +7680,9 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    q("qaNote").value=tx.note||"";
    q("qaNewBox").style.display="none"; manage=false; q("qaManage").textContent="✏️ ערוך / מחק קטגוריות"; q("qaCatEdit").style.display="none";
    setEditUi(true,spendee);
+   q("qaRec").checked=!!edit.rec; dayTouched=!!edit.rec;
+   q("qaRecDay").value=edit.rec?edit.rec.day:(Number(edit.date.slice(8,10))||1);
+   q("qaRecDayWrap").style.display=edit.rec?"flex":"none";
    const hasOv=!!((state.categoryOverrides&&state.categoryOverrides[sk]!==undefined)||(state.amountOverrides&&state.amountOverrides[sk]!==undefined));
    const del=q("qaDel"); del.style.display=(!spendee||hasOv)?"":"none"; del.textContent=spendee?"בטל עריכות":"מחק";
    drawCats(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0;
@@ -7705,7 +7712,39 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      if(d&&d!==String(row.date||"").slice(0,10)) row.date=d+"T12:00:00";
      row.note=q("qaNote").value.trim();
    }
-   afterEdit("התנועה עודכנה");
+   let msg="התנועה עודכנה";
+   try{
+     const dStr=edit.spendee?edit.date:(q("qaDate").value||edit.date);
+     const want=q("qaRec").checked, rec=edit.rec;
+     const day=Math.min(31,Math.max(1,Number(q("qaRecDay").value)||Number(dStr.slice(8,10))||1));
+     const note=edit.spendee?edit.note:q("qaNote").value.trim();
+     state.recurring=Array.isArray(state.recurring)?state.recurring:[];
+     if(want&&rec){
+       rec.day=day; rec.type=type; rec.category=cat; rec.amount=Math.abs(a); if(!edit.spendee) rec.note=note;
+       msg="התנועה וההוצאה החוזרת עודכנו";
+     }else if(want){
+       const rid="r"+Date.now().toString(36), ym=dStr.slice(0,7), today=ymd(new Date());
+       const r={id:rid,type,category:cat,amount:Math.abs(a),note,day,start:ym,done:[]};
+       if(edit.spendee) r.srcKey=sk;
+       // months up to today are treated as already reported — only upcoming months get generated
+       let [y,m]=ym.split("-").map(Number);
+       for(let n=0;n<240;n++){
+         const k=y+"-"+String(m).padStart(2,"0"), ds=k+"-"+String(Math.min(day,new Date(y,m,0).getDate())).padStart(2,"0");
+         if(ds>today&&k>today.slice(0,7)) break;
+         if(ds<=today||k===ym) r.done.push(k);
+         m++; if(m>12){m=1;y++}
+       }
+       if(!r.done.includes(ym)) r.done.push(ym);
+       state.recurring.push(r);
+       if(!edit.spendee) edit.row.recKey=rid+"|"+ym;
+       runRecurring(true);
+       msg="התנועה עודכנה · חוזרת ב־"+day+" לחודש";
+     }else if(rec){
+       state.recurring=state.recurring.filter(r=>r!==rec);
+       msg="ההוצאה החוזרת הופסקה (תנועות קיימות נשארו)";
+     }
+   }catch(err){ console.error(err); }
+   afterEdit(msg);
  }
  function delOrRevert(){
    if(!edit) return;
