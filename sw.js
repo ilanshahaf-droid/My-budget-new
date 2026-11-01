@@ -1,5 +1,5 @@
 // Network-first: always fetch the latest version, fall back to cache when offline.
-const CACHE = "budget-v1";
+const CACHE = "budget-v2";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -19,7 +19,7 @@ self.addEventListener("fetch", e => {
   // Only same-origin GETs; Supabase, CDN scripts etc. go straight to the network.
   if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: "no-cache" }) // revalidate with the server, bypassing the 10-minute GitHub Pages HTTP cache
       .then(res => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
         return res;
