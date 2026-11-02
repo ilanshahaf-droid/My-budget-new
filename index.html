@@ -2592,6 +2592,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 .rc35-tx-item.est{cursor:default;opacity:.75}
 .rc35-tx-empty{padding:10px;color:var(--muted);font-size:13px}
 </style>
+<style id="qaRecStyle">.qrec{font-size:13px;margin-inline-start:4px;opacity:.9}</style>
 </head>
 <body>
 <header><div class="wrap"><h1>מנהל התקציב שלי</h1><div class="sub">V4.2 · ממוקד</div></div></header>
@@ -3452,6 +3453,7 @@ function saveStateToLocalStorage(){
 function save(markDirty=true){
  if(typeof invalidateAllTxCache==="function") invalidateAllTxCache();
  saveStateToLocalStorage();
+ try{ recVaultSync(); }catch(e){}
  if(!cloudApplying && markDirty){
    markLocalChange();
    scheduleCloudSave();
@@ -3571,6 +3573,233 @@ async function onCloudSignedIn(user){
    await autoSyncState("login");
  }
 }
+// ===================== Data-loss protection =====================
+// Root cause of the vanished recurring expenses: every save() uploaded this device's whole state to the
+// cloud without checking whether another device had written since. A device holding an older copy
+// (e.g. a phone waking up and running the recurring job) overwrote the newer data, and the other
+// devices then "synced" the old copy. Protections below:
+//  1. uploads are compare-and-swap (see uploadStateToCloudOnce) — a stale device can never overwrite;
+//  2. when both sides changed, the two states are MERGED (union with delete-tombstones), never replaced;
+//  3. every recurring rule is also kept in a local "vault" and silently restored if it disappears;
+//  4. old automatic backups can be scanned for lost recurring rules.
+function txSig(x){ return [String((x&&x.date)||"").slice(0,19),(x&&x.type)||"",(x&&x.category)||"",Number((x&&x.amount)||0).toFixed(2),(x&&x.note)||"",(x&&x.source)||"",(x&&x.recKey)||""].join("|"); }
+let _recKeyCache={t:0,s:null};
+function recStableKeys(){
+  const n=Date.now(); if(_recKeyCache.s&&n-_recKeyCache.t<400) return _recKeyCache.s;
+  const set=new Set();
+  try{
+    const ids=new Set((state.recurring||[]).map(r=>r.id));
+    (state.recurring||[]).forEach(r=>{ if(r.srcKey) set.add(r.srcKey); });
+    (state.manual||[]).forEach(x=>{ if(x.recKey&&ids.has(String(x.recKey).split("|")[0])){ try{ set.add(stableTxKey(x)); }catch(e){} } });
+  }catch(e){}
+  _recKeyCache={t:n,s:set}; return set;
+}
+window.recStableKeys=recStableKeys;
+function budgetFlash(msg){
+  try{
+    let t=document.getElementById("budgetFlash");
+    if(!t){ t=document.createElement("div"); t.id="budgetFlash"; t.style.cssText="position:fixed;bottom:160px;left:50%;transform:translateX(-50%);background:#2b2540;color:#fff;padding:10px 16px;border-radius:12px;z-index:99999;max-width:90%;text-align:center;font-size:14px"; document.body.appendChild(t); }
+    t.textContent=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>{t.style.display="none"},4500);
+  }catch(e){}
+}
+function unionJson(a,b){ const seen=new Set(),res=[]; (a||[]).concat(b||[]).forEach(v=>{ const j=JSON.stringify(v); if(!seen.has(j)){ seen.add(j); res.push(v); } }); return res; }
+function mergeBudgetStates(L,R){
+  L=L||{}; R=R||{};
+  const now=Date.now(), TTL=180*864e5, clone=v=>JSON.parse(JSON.stringify(v));
+  const out=clone(L);
+  Object.keys(R).forEach(k=>{ if(!(k in out)&&k!=="autoBackups") out[k]=clone(R[k]); });
+  ["recDeleted","manualDeleted"].forEach(k=>{
+    const m={};
+    [R[k],L[k]].forEach(src=>{ if(src&&typeof src==="object") Object.keys(src).forEach(id=>{ m[id]=Math.max(Number(m[id]||0),Number(src[id]||0)); }); });
+    Object.keys(m).forEach(id=>{ if(now-m[id]>TTL) delete m[id]; });
+    out[k]=m;
+  });
+  // recurring rules: union by id, newer edit wins, "done" months are unioned
+  const rm=new Map();
+  (R.recurring||[]).concat(L.recurring||[]).forEach(r=>{
+    if(!r||!r.id) return;
+    const prev=rm.get(r.id);
+    if(!prev){ rm.set(r.id,clone(r)); return; }
+    const pick=(Number(r.modAt||0)>=Number(prev.modAt||0))?clone(r):prev;
+    pick.done=Array.from(new Set([].concat(prev.done||[],r.done||[]))).sort();
+    rm.set(r.id,pick);
+  });
+  out.recurring=[...rm.values()].filter(r=>!out.recDeleted[r.id]);
+  // manual transactions: union by signature; a deletion on one side removes the row from the other side's copy
+  const seen=new Set(), man=[], lmd=L.manualDeleted||{}, rmd=R.manualDeleted||{};
+  (L.manual||[]).forEach(x=>{ const sg=txSig(x); if(seen.has(sg)||rmd[sg]) return; seen.add(sg); man.push(x); });
+  (R.manual||[]).forEach(x=>{ const sg=txSig(x); if(seen.has(sg)||lmd[sg]) return; seen.add(sg); man.push(x); });
+  out.manual=man;
+  if((R.spendee||[]).length>(L.spendee||[]).length) out.spendee=clone(R.spendee);
+  ["categoryOverrides","amountOverrides","txMeta","spendeeCorrections","creditMatchRules","kibbutzRules"].forEach(k=>{
+    const a=L[k], b=R[k];
+    if(Array.isArray(a)||Array.isArray(b)) out[k]=unionJson(a,b);
+    else if((a&&typeof a==="object")||(b&&typeof b==="object")) out[k]=Object.assign({},b||{},a||{});
+  });
+  const ls=L.settings||{}, rs=R.settings||{}, st=Object.assign({},rs,ls);
+  Object.keys(rs).forEach(k=>{
+    const a=ls[k], b=rs[k];
+    if(Array.isArray(a)&&Array.isArray(b)) st[k]=unionJson(a,b);
+    else if(a&&b&&typeof a==="object"&&typeof b==="object"&&!Array.isArray(a)&&!Array.isArray(b)) st[k]=Object.assign({},b,a);
+  });
+  out.settings=st;
+  if(L.autoBackups) out.autoBackups=L.autoBackups; else delete out.autoBackups;
+  return out;
+}
+window.mergeBudgetStates=mergeBudgetStates;
+function recVaultRead(){ try{ return JSON.parse(localStorage.getItem("budgetV36_recVault")||"{}")||{}; }catch(e){ return {}; } }
+function recVaultSync(){
+  try{
+    if(typeof state==="undefined"||!state) return;
+    const v=recVaultRead(), dead=state.recDeleted||{};
+    (state.recurring||[]).forEach(r=>{ if(r&&r.id) v[r.id]=r; });
+    Object.keys(dead).forEach(id=>{ delete v[id]; });
+    localStorage.setItem("budgetV36_recVault",JSON.stringify(v));
+  }catch(e){}
+}
+function recSelfHeal(){
+  try{
+    if(typeof state==="undefined"||!state) return 0;
+    const v=recVaultRead(), dead=state.recDeleted||{};
+    state.recurring=Array.isArray(state.recurring)?state.recurring:[];
+    const have=new Set(state.recurring.map(r=>r.id)); let n=0;
+    Object.keys(v).forEach(id=>{ if(!have.has(id)&&!dead[id]&&v[id]&&v[id].id){ state.recurring.push(v[id]); n++; } });
+    if(n){ save(); budgetFlash("שוחזרו "+n+" הוצאות חוזרות שנעלמו"); }
+    recVaultSync();
+    return n;
+  }catch(e){ return 0; }
+}
+function recRecoverFromBackups(force){
+  try{
+    const lists=[];
+    try{ lists.push(JSON.parse(localStorage.getItem("budgetV36_autoBackups")||"[]")); }catch(e){}
+    if(Array.isArray(state.autoBackups)) lists.push(state.autoBackups);
+    const have=new Set((state.recurring||[]).map(r=>r.id)), dead=state.recDeleted||{}, found=new Map();
+    lists.forEach(l=>(l||[]).forEach(sn=>{ ((sn&&sn.state&&sn.state.recurring)||[]).forEach(r=>{ if(r&&r.id&&!have.has(r.id)&&!dead[r.id]&&!found.has(r.id)) found.set(r.id,r); }); }));
+    if(!found.size){ if(force) alert("לא נמצאו הוצאות חוזרות חסרות בגיבויים האוטומטיים של המכשיר הזה."); return 0; }
+    const sig=[...found.keys()].sort().join(",");
+    if(!force&&localStorage.getItem("budgetRecRecoverSeen")===sig) return 0;
+    localStorage.setItem("budgetRecRecoverSeen",sig);
+    const names=[...found.values()].slice(0,8).map(r=>r.category+" ₪"+Number(r.amount).toFixed(0)).join(", ");
+    if(!confirm("נמצאו "+found.size+" הוצאות חוזרות בגיבויים האוטומטיים של המכשיר שאינן קיימות כעת:\n"+names+(found.size>8?" ועוד…":"")+"\n\nלשחזר אותן?")) return 0;
+    const cy=new Date().toISOString().slice(0,7);
+    state.manual=Array.isArray(state.manual)?state.manual:[];
+    found.forEach(r=>{
+      const c=JSON.parse(JSON.stringify(r)); c.modAt=Date.now();
+      if(Array.isArray(c.done)&&c.done.includes(cy)&&!state.manual.some(x=>x.recKey===c.id+"|"+cy)) c.done=c.done.filter(k=>k!==cy);
+      state.recurring.push(c);
+    });
+    save(); recVaultSync();
+    try{ if(typeof window.runRecurring==="function") window.runRecurring(false); }catch(e){}
+    budgetFlash("שוחזרו "+found.size+" הוצאות חוזרות מהגיבויים");
+    return found.size;
+  }catch(e){ console.warn("recRecover",e); return 0; }
+}
+window.recRecoverFromBackups=recRecoverFromBackups;
+async function mergeWithCloud(row,depth){
+  depth=depth||0;
+  if(!row||!row.data) return;
+  try{ if(typeof window.autoBackupBeforeImport==="function") window.autoBackupBeforeImport("before-merge"); }catch(e){}
+  try{ localSnapshotOf(row.data,"cloud-before-merge"); }catch(e){}
+  try{ histSnapshot("before-merge-cloud",row.data); }catch(e){}
+  const merged=mergeBudgetStates(state,row.data);
+  const keep=state.autoBackups;
+  cloudApplying=true; state=merged; if(keep) state.autoBackups=keep; saveStateToLocalStorage(); cloudApplying=false;
+  cloudRowId=row.id||cloudRowId;
+  localStorage.setItem("budgetCloudLastSync",row.updated_at||new Date().toISOString());
+  markLocalChange();
+  try{ recSelfHeal(); }catch(e){}
+  try{ if(typeof invalidateAllTxCache==="function") invalidateAllTxCache(); buildMonths();buildAnnualYears();render();renderAnnual(); }catch(e){}
+  setCloudStatus("מוזגו השינויים מכל המכשירים ✓","ok");
+  if(depth<4) await uploadStateToCloud(false,depth);
+}
+async function uploadStateToCloud(manual=false,depth=0){
+  const r=await uploadStateToCloudOnce(manual);
+  if(r==="raced"){
+    if(depth>=3){ setCloudStatus("הענן ממשיך להתעדכן ממכשיר אחר — נסה שוב בעוד רגע.","warn"); return; }
+    const fresh=await getCloudRow();
+    if(fresh&&fresh.data) await mergeWithCloud(fresh,depth+1);
+  }
+}
+setTimeout(()=>{ try{ recVaultSync(); recRecoverFromBackups(false); }catch(e){} },6000);
+// ---------- Server-side version history (point-in-time recovery independent of any device) ----------
+let _histDisabled=false;
+function histSummary(d){ d=d||{}; return {manual:(d.manual||[]).length,spendee:(d.spendee||[]).length,recurring:(d.recurring||[]).length}; }
+async function histSnapshot(reason,dataObj){
+  if(_histDisabled||!supabaseClient||!cloudUserObj) return false;
+  try{
+    const d=JSON.parse(JSON.stringify(dataObj||state)); delete d.autoBackups;
+    const r=await supabaseClient.from("budget_history").insert({user_id:cloudUserObj.id,reason:reason,summary:histSummary(d),data:d});
+    if(r&&r.error){ if(/permission|does not exist|relation|schema cache|not find/i.test(r.error.message||"")) _histDisabled=true; console.warn("history",r.error.message); return false; }
+    localStorage.setItem("budgetHistLast",String(Date.now()));
+    return true;
+  }catch(e){ return false; }
+}
+function histMaybeSnapshot(){
+  const last=Number(localStorage.getItem("budgetHistLast")||0);
+  if(Date.now()-last>3*3600e3){ localStorage.setItem("budgetHistLast",String(Date.now())); histSnapshot("auto"); }
+  const lp=Number(localStorage.getItem("budgetHistPruned")||0);
+  if(!_histDisabled&&Date.now()-lp>864e5){
+    localStorage.setItem("budgetHistPruned",String(Date.now()));
+    try{ supabaseClient.from("budget_history").delete().eq("user_id",cloudUserObj.id).lt("created_at",new Date(Date.now()-45*864e5).toISOString()).then(()=>{},()=>{}); }catch(e){}
+  }
+}
+const HIST_REASON={auto:"אוטומטי",manual:"ידני","before-merge-cloud":"לפני מיזוג","before-force-upload":"לפני דריסה ידנית","before-restore":"לפני שחזור"};
+async function histRestore(id,mode){
+  const r=await supabaseClient.from("budget_history").select("data,created_at").eq("id",id).single();
+  if(r.error||!r.data){ alert("טעינת הגרסה נכשלה."); return; }
+  const when=new Date(r.data.created_at).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+  const msg=mode==="merge"?("למזג את הגרסה מ-"+when+" עם הנתונים הנוכחיים?\nמוסיף רק מה שחסר ולא מוחק דבר."):("להחליף את כל הנתונים הנוכחיים בגרסה מ-"+when+"?\nגיבוי של המצב הנוכחי נשמר קודם.");
+  if(!confirm(msg)) return;
+  await histSnapshot("before-restore");
+  try{ if(typeof window.autoBackupBeforeImport==="function") window.autoBackupBeforeImport("before-restore"); }catch(e){}
+  const keep=state.autoBackups;
+  const next=mode==="merge"?mergeBudgetStates(state,r.data.data):JSON.parse(JSON.stringify(r.data.data));
+  state=next; if(keep) state.autoBackups=keep;
+  save();
+  try{ if(typeof invalidateAllTxCache==="function") invalidateAllTxCache(); buildMonths();buildAnnualYears();render();renderAnnual(); }catch(e){}
+  const ov=document.getElementById("histOverlay"); if(ov) ov.remove();
+  budgetFlash(mode==="merge"?"הגרסה מוזגה ✓":"הגרסה שוחזרה ✓");
+}
+async function histOpenPicker(){
+  if(!supabaseClient||!cloudUserObj){ alert("יש להתחבר לענן תחילה."); return; }
+  const old=document.getElementById("histOverlay"); if(old) old.remove();
+  const ov=document.createElement("div"); ov.id="histOverlay";
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;display:flex;align-items:flex-end;justify-content:center";
+  ov.innerHTML='<div dir="rtl" style="background:#fff;width:min(640px,100%);max-height:85vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:17px">🕘 גרסאות שמורות בענן</b><button type="button" class="secondary" id="histClose">סגור</button></div><div class="muted tiny" style="margin:6px 0 10px">גרסה נשמרת אוטומטית כל כמה שעות ולפני כל מיזוג או דריסה. "מזג" מוסיף רק מה שחסר ולא מוחק דבר. "החלף" מחזיר את כל הנתונים לאותו רגע.</div><button type="button" id="histNow" class="secondary" style="width:100%;margin-bottom:10px">📦 שמור גרסה עכשיו</button><div id="histList">טוען...</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener("click",e=>{ if(e.target===ov) ov.remove(); });
+  ov.querySelector("#histClose").onclick=()=>ov.remove();
+  const list=ov.querySelector("#histList");
+  async function load(){
+    const r=await supabaseClient.from("budget_history").select("id,created_at,reason,summary").eq("user_id",cloudUserObj.id).order("created_at",{ascending:false}).limit(40);
+    if(r.error){ list.textContent="לא ניתן לטעון את ההיסטוריה: "+r.error.message+" — ייתכן שהטבלה budget_history עדיין לא הוגדרה ב-Supabase."; return; }
+    const rows=r.data||[];
+    if(!rows.length){ list.textContent="עדיין אין גרסאות שמורות. לחץ על 'שמור גרסה עכשיו'."; return; }
+    list.innerHTML=rows.map(x=>{
+      const sm=x.summary||{}, d=new Date(x.created_at);
+      return '<div style="border-top:1px solid #e7ebf1;padding:10px 0;display:flex;gap:8px;align-items:center"><div style="flex:1"><b>'+d.toLocaleDateString("he-IL")+" "+d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"})+'</b><div class="muted tiny">'+(HIST_REASON[x.reason]||x.reason||"")+" · "+((sm.manual||0)+(sm.spendee||0))+" תנועות · "+(sm.recurring||0)+' חוזרות</div></div><button type="button" class="secondary" data-id="'+x.id+'" data-m="merge">מזג</button><button type="button" class="danger" data-id="'+x.id+'" data-m="replace">החלף</button></div>';
+    }).join("");
+  }
+  list.onclick=e=>{ const b=e.target.closest("button[data-id]"); if(b) histRestore(b.dataset.id,b.dataset.m); };
+  ov.querySelector("#histNow").onclick=async()=>{ const ok=await histSnapshot("manual"); budgetFlash(ok?"נשמרה גרסה בענן ✓":"השמירה נכשלה (ייתכן שהטבלה עדיין לא הוגדרה)"); load(); };
+  load();
+}
+window.histOpenPicker=histOpenPicker;
+// remind about a downloaded file backup once a week
+(function(){
+  ["exportBackup","shareBackupToDrive"].forEach(n=>{
+    try{ const f=window[n]; if(typeof f==="function") window[n]=function(){ try{ localStorage.setItem("budgetLastExport",String(Date.now())); }catch(e){} return f.apply(this,arguments); }; }catch(e){}
+  });
+  setTimeout(()=>{ try{
+    const last=Number(localStorage.getItem("budgetLastExport")||0), day=new Date().toISOString().slice(0,10);
+    if(Date.now()-last>7*864e5 && localStorage.getItem("budgetBackupNagDay")!==day){
+      localStorage.setItem("budgetBackupNagDay",day);
+      budgetFlash("עברו יותר משבוע מהגיבוי האחרון לקובץ. הגדרות ← גיבוי ושחזור ← גיבוי המערכת");
+    }
+  }catch(e){} },9000);
+})();
+
 async function getCloudRow(){
  if(!supabaseClient||!cloudUserObj)return null;
  const {data,error}=await supabaseClient.from("budget_data").select("id,data,updated_at").eq("user_id",cloudUserObj.id).order("updated_at",{ascending:false}).limit(1).maybeSingle();
@@ -3583,7 +3812,7 @@ function scheduleCloudSave(){
  if(!navigator.onLine){setCloudStatus("אין אינטרנט — השינוי נשמר במכשיר ויסונכרן כשהחיבור יחזור.","warn");return}
  cloudSaveTimer=setTimeout(()=>uploadStateToCloud(false),1200);
 }
-async function uploadStateToCloud(manual=false){
+async function uploadStateToCloudOnce(manual=false){
  if(!supabaseClient||!cloudUserObj){if(manual)alert("יש להתחבר תחילה.");return}
  if(!navigator.onLine){setCloudStatus("אין אינטרנט — הנתונים ממתינים לסנכרון.","warn");return}
  if(cloudSyncInFlight){cloudPendingAfterSync=true;return}
@@ -3592,15 +3821,28 @@ async function uploadStateToCloud(manual=false){
  try{
    setCloudStatus("שומר אוטומטית בענן...","warn");
    const payload={user_id:cloudUserObj.id,data:state,updated_at:new Date().toISOString()};
+   // Compare-and-swap: only overwrite the cloud row if nobody else wrote since this device last synced.
+   // (A stale device saving its old copy used to silently replace newer data from another device.)
+   const expected=localStorage.getItem("budgetCloudLastSync")||"";
+   if(manual===true){ try{ const cur=await getCloudRow(); if(cur&&cur.data) await histSnapshot("before-force-upload",cur.data); }catch(e){} }
    let result;
-   if(cloudRowId) result=await supabaseClient.from("budget_data").update(payload).eq("id",cloudRowId).select("id,updated_at").single();
-   else result=await supabaseClient.from("budget_data").insert(payload).select("id,updated_at").single();
+   if(cloudRowId){
+     let qy=supabaseClient.from("budget_data").update(payload).eq("id",cloudRowId);
+     if(expected&&manual!==true) qy=qy.eq("updated_at",expected);
+     result=await qy.select("id,updated_at");
+     if(!result.error){
+       const rows=Array.isArray(result.data)?result.data:(result.data?[result.data]:[]);
+       if(!rows.length&&expected&&manual!==true){ setCloudStatus("הענן עודכן ממכשיר אחר — ממזג את השינויים...","warn"); return "raced"; }
+       result={data:rows[0]||{id:cloudRowId,updated_at:payload.updated_at},error:null};
+     }
+   } else result=await supabaseClient.from("budget_data").insert(payload).select("id,updated_at").single();
    if(result.error){setCloudStatus("שמירה בענן נכשלה: "+result.error.message+" — הנתונים נשמרו מקומית וינוסה שוב.","bad");return}
    cloudRowId=result.data.id;
    localStorage.setItem(cloudReadyKey(),"1");
    localStorage.setItem("budgetCloudLastSync",result.data.updated_at||new Date().toISOString());
    clearLocalDirtyIfSynced(syncStartedAt);
    updateCloudUI();setCloudStatus("מסונכרן ✓ נשמר אוטומטית בענן.","ok");
+   try{ histMaybeSnapshot(); }catch(e){}
  }finally{
    cloudSyncInFlight=false;
    if(cloudPendingAfterSync){cloudPendingAfterSync=false;scheduleCloudSave()}
@@ -3671,6 +3913,7 @@ async function downloadStateFromCloud(manual=false){
  localStorage.setItem(LOCAL_CHANGED_KEY,"0");
  updateCloudUI();
  buildMonths();buildAnnualYears();render();renderAnnual();
+ try{ recSelfHeal(); }catch(e){}
  setCloudStatus("מסונכרן ✓ נטענו הנתונים העדכניים מהענן.","ok");
 }
 async function autoSyncState(reason="auto"){
@@ -3682,7 +3925,7 @@ async function autoSyncState(reason="auto"){
  const lastTime=lastCloudSyncAt();
  const localDirty=hasUnsyncedLocalChanges();
  if(localDirty && remoteTime>lastTime){
-   setCloudStatus("נמצאו שינויים גם במכשיר הזה וגם בענן. לא בוצעה דריסה אוטומטית — לחץ 'סנכרן עכשיו' לבחירה.","warn");
+   await mergeWithCloud(row,0);
    return;
  }
  if(localDirty){await uploadStateToCloud(false);return}
@@ -3698,17 +3941,7 @@ async function syncNow(){
  const lastTime=lastCloudSyncAt();
  const localDirty=hasUnsyncedLocalChanges();
  if(localDirty && remoteTime>lastTime){
-   const cloudWhen=new Date(row.updated_at||0).toLocaleString("he-IL",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-   const useLocal=confirm("יש שינויים שלא סונכרנו גם במכשיר הזה וגם בענן.\n\n"+
-     "במכשיר הזה: "+budgetTxCount(state)+" תנועות\n"+
-     "בענן: "+budgetTxCount(row.data)+" תנועות (עודכן "+cloudWhen+")\n\n"+
-     "אישור = לשמור את גרסת המכשיר הזה בענן (גרסת הענן תידרס).\n"+
-     "ביטול = לטעון את גרסת הענן למכשיר (מה שבמכשיר יידרס).\n\n"+
-     "לפני ההחלפה נשמר גיבוי אוטומטי של הגרסה שנדרסת (הגדרות ← גיבוי ושחזור).");
-   if(useLocal){
-     try{ localSnapshotOf(row.data,"cloud-before-overwrite"); }catch(e){}
-     await uploadStateToCloud(true);
-   } else await downloadStateFromCloud(true);
+   await mergeWithCloud(row,0);
    return;
  }
  await autoSyncState("manual");
@@ -3728,7 +3961,7 @@ function subscribeCloudRealtime(){
     const lastTime=lastCloudSyncAt();
     if(remoteTime<=lastTime)return;
     if(hasUnsyncedLocalChanges()){
-      setCloudStatus("הגיע עדכון ממכשיר אחר בזמן שיש כאן שינוי שטרם נשמר. לא בוצעה דריסה אוטומטית.","warn");
+      await mergeWithCloud({id:remote.id,data:remote.data,updated_at:remote.updated_at},0);
       return;
     }
     if(!(await safeguardBeforeApplyingCloudState(remote.data))) return;
@@ -3740,6 +3973,7 @@ function subscribeCloudRealtime(){
     localStorage.setItem("budgetCloudLastSync",remote.updated_at||new Date().toISOString());
     localStorage.setItem(LOCAL_CHANGED_KEY,"0");
     buildMonths();buildAnnualYears();render();renderAnnual();
+    try{ recSelfHeal(); }catch(e){}
     setCloudStatus("עודכן אוטומטית ממכשיר אחר ✓","ok");
   }).subscribe();
 }
@@ -7614,6 +7848,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    manage=false; q("qaManage").textContent="✏️ ערוך / מחק קטגוריות"; q("qaCatEdit").style.display="none"; q("qaNewBox").style.display="none"; q("qaRec").checked=false; q("qaRecDayWrap").style.display="none"; dayTouched=false; drawCats(); drawRecList(); q("qaBack").classList.add("open"); q("qaScroll").scrollTop=0; setTimeout(()=>q("qaAmt").focus(),50);
  }
  function runRecurring(noRender){
+   try{ recSelfHeal(); }catch(e){}
    if(typeof state==="undefined"||!state||!Array.isArray(state.recurring)||!state.recurring.length) return false;
    state.manual=Array.isArray(state.manual)?state.manual:[];
    if(!state.recFixNov1){
@@ -7722,6 +7957,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    if(!cat){toast("בחר קטגוריה");return}
    state.categoryOverrides=state.categoryOverrides||{}; state.amountOverrides=state.amountOverrides||{};
    const sk=edit.sk;
+   const preSig=(!edit.spendee&&edit.row)?txSig(edit.row):null;
    if(edit.spendee){
      if(cat!==edit.initCat) state.categoryOverrides[sk]=cat;
      if(Math.abs(a)!==edit.initAmt) state.amountOverrides[sk]=Math.abs(a);
@@ -7742,11 +7978,11 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      const note=edit.spendee?edit.note:q("qaNote").value.trim();
      state.recurring=Array.isArray(state.recurring)?state.recurring:[];
      if(want&&rec){
-       rec.day=day; rec.type=type; rec.category=cat; rec.amount=Math.abs(a); if(!edit.spendee) rec.note=note;
+       rec.modAt=Date.now(); rec.day=day; rec.type=type; rec.category=cat; rec.amount=Math.abs(a); if(!edit.spendee) rec.note=note;
        msg="התנועה וההוצאה החוזרת עודכנו";
      }else if(want){
        const rid="r"+Date.now().toString(36), ym=dStr.slice(0,7), today=ymd(new Date());
-       const r={id:rid,type,category:cat,amount:Math.abs(a),note,day,start:ym,done:[]};
+       const r={id:rid,type,category:cat,amount:Math.abs(a),note,day,start:ym,done:[],modAt:Date.now()};
        if(edit.spendee) r.srcKey=sk;
        // months up to today are treated as already reported — only upcoming months get generated
        // months before the current one are assumed already reported; the current month onward is generated
@@ -7764,10 +8000,12 @@ $("kibbutzInvoiceFile").onchange=async e=>{
        runRecurring(true);
        msg="התנועה עודכנה · חוזרת ב־"+day+" לחודש";
      }else if(rec){
+       state.recDeleted=state.recDeleted||{}; state.recDeleted[rec.id]=Date.now();
        state.recurring=state.recurring.filter(r=>r!==rec);
        msg="ההוצאה החוזרת הופסקה (תנועות קיימות נשארו)";
      }
    }catch(err){ console.error(err); }
+   if(preSig){ const ns=txSig(edit.row); if(ns!==preSig){ state.manualDeleted=state.manualDeleted||{}; state.manualDeleted[preSig]=Date.now(); } if(state.manualDeleted) delete state.manualDeleted[ns]; }
    afterEdit(msg);
  }
  function delOrRevert(){
@@ -7780,6 +8018,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    }
    if(!confirm("למחוק את התנועה?")) return;
    const row=edit.row;
+   state.manualDeleted=state.manualDeleted||{}; state.manualDeleted[txSig(row)]=Date.now();
    state.manual=(state.manual||[]).filter(x=>x!==row);
    if(state.categoryOverrides) delete state.categoryOverrides[sk];
    if(state.amountOverrides) delete state.amountOverrides[sk];
@@ -7801,7 +8040,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
      recDay=Math.min(31,Math.max(1,Number(q("qaRecDay").value)||Number(d.slice(8,10))));
      const rid="r"+Date.now().toString(36), ym=d.slice(0,7);
      state.recurring=Array.isArray(state.recurring)?state.recurring:[];
-     state.recurring.push({id:rid,type,category:cat,amount:a,note,day:recDay,start:ym,done:[ym]});
+     state.recurring.push({id:rid,type,category:cat,amount:a,note,day:recDay,start:ym,done:[ym],modAt:Date.now()});
      tx.recKey=rid+"|"+ym;
      runRecurring(true);
    }
@@ -7818,9 +8057,11 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  q("qaRecList").onclick=e=>{
    const b=e.target.closest("button[data-rid]"); if(!b) return;
    if(!confirm("להפסיק את ההוצאה החוזרת? תנועות שכבר נוצרו יישארו.")) return;
+   state.recDeleted=state.recDeleted||{}; state.recDeleted[b.dataset.rid]=Date.now();
    state.recurring=(state.recurring||[]).filter(r=>r.id!==b.dataset.rid);
    save(); drawRecList();
  };
+ window.runRecurring=runRecurring;
  setTimeout(()=>runRecurring(false),2500);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden) runRecurring(false)});
  q("qaDel").onclick=delOrRevert;
@@ -8795,9 +9036,10 @@ if ("serviceWorker" in navigator) {
     const bg=typeof categoryChipColor==="function"?categoryChipColor(cat):"#f3f1fa";
     const num=String(amount).replace(/[₪\s]/g,"");
     const sub=note&&note!==cat?note:"";
+    let isRec=false; try{ isRec=!!(sk&&window.__recSet&&window.__recSet.has(decodeURIComponent(sk))); }catch(e){ isRec=!!(sk&&window.__recSet&&window.__recSet.has(sk)); }
     return `<div class="qrow"${sk?` onclick="openTxEditor('${sk}')" role="button" tabindex="0"`:""}>
       <span class="qicon" style="background:${bg}">${icon}</span>
-      <div class="qmain"><b dir="auto">${escapeHtml(cat)}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
+      <div class="qmain"><b dir="auto">${escapeHtml(cat)}${isRec?' <span class="qrec" title="הוצאה חוזרת">🔁</span>':''}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
       <span class="qamt${isIncome?" qin":""}" dir="ltr">₪ ${isIncome?"+":"-"}${escapeHtml(num)}</span>
     </div>`;
   }
@@ -8817,6 +9059,7 @@ if ("serviceWorker" in navigator) {
     if(!list) return;
     const btn=document.getElementById("rc25ShowAllTx");
     const emptyEl=document.getElementById("rc25TxSearchEmpty");
+    window.__recSet=recStableKeys();
     const rows=rc25BuildRows();
     const q=rc25SearchQuery.trim().toLowerCase();
 
@@ -9142,7 +9385,8 @@ if ("serviceWorker" in navigator) {
       const v=isInc?incomeAmount(x):expenseAmount(x);
       const note=(x.note||"").trim();
       const sk=typeof stableTxKey==="function"?encodeURIComponent(stableTxKey(x)):"";
-      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${escapeHtml(note||category.name)}</span><b>${fmt(v)}</b></div>`;
+      let isRec=false; try{ isRec=recStableKeys().has(stableTxKey(x)); }catch(e){}
+      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${isRec?"🔁 ":""}${escapeHtml(note||category.name)}</span><b>${fmt(v)}</b></div>`;
     }).join("");
     if(!isYear && !isInc){
       const p=(state.expectedExpenses||[]).find(e=>e.autoKibbutz===true && e.month===key && e.kibbutzCategory===category.name && !e.paid);
@@ -11322,6 +11566,16 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
         btn.textContent="שחזור גיבוי אוטומטי אחרון";
         btn.onclick=()=>restoreLastAutoBackup();
         c.appendChild(btn);
+        const b2=document.createElement("button");
+        b2.type="button"; b2.className="secondary"; b2.style.marginTop="8px";
+        b2.textContent="🔁 שחזר הוצאות חוזרות חסרות מגיבויים";
+        b2.onclick=()=>recRecoverFromBackups(true);
+        c.appendChild(b2);
+        const b3=document.createElement("button");
+        b3.type="button"; b3.className="secondary"; b3.style.marginTop="8px";
+        b3.textContent="🕘 גרסאות שמורות בענן (שחזור לפי תאריך)";
+        b3.onclick=()=>histOpenPicker();
+        c.appendChild(b3);
       }
     });
   }
