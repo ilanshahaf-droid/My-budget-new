@@ -1,7 +1,8 @@
 name: גיבוי אקסל לדרייב
 on:
   schedule:
-    - cron: "30 19 28-31 * *"
+   - cron: "30 19 28-31 * *"
+   - cron: "30 19 * * 5"
   workflow_dispatch: {}
 jobs:
   backup:
