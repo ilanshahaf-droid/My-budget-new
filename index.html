@@ -4608,7 +4608,17 @@ function parseCSVLine(line){
   return out.map(s=>s.trim());
 }
 function parseFundsCSVLocally(csvText){
-  const lines=String(csvText||"").split(/\r\n|\n|\r/).filter(l=>l.trim()!=="");
+  const all=String(csvText||"").split(/\r\n|\n|\r/).filter(l=>l.trim()!=="");
+  // The header row isn't always the first line (sheet-name line, report title, blank rows…):
+  // look for the first row that has several cells and one of them is a balance column.
+  const balNeedles=["יתרה","שווי כספי","שווי","balance","value"];
+  let hRow=-1;
+  for(let i=0;i<Math.min(all.length,25);i++){
+    const cells=parseCSVLine(all[i]);
+    if(cells.length>=3&&cells.some(c=>balNeedles.some(n=>c.toLowerCase().includes(n)))){ hRow=i; break; }
+  }
+  if(hRow<0) return null;
+  const lines=all.slice(hRow);
   if(lines.length<2) return null;
   const header=parseCSVLine(lines[0]).map(h=>h.trim());
   const findCol=(...needles)=>header.findIndex(h=>{
@@ -4620,7 +4630,7 @@ function parseFundsCSVLocally(csvText){
   const typeIdx=findCol("סוג","type");
   const providerIdx=findCol("חברה מנהלת","שם קופה","שם קרן","חברה","קופה","קרן","provider","fund name");
   const trackIdx=findCol("מסלול","track");
-  const fundNumIdx=findCol("מס' קופה","מספר קופה","מס קופה","מס' מה","מספר קרן","fund number","fund id");
+  const fundNumIdx=findCol("מס' קופה","מספר קופה","מס קופה","מס' מה","מס מה","מס מ\"ה","מ\"ה","מספר קרן","fund number","fund id");
   const accountIdx=findCol("מספר חשבון","מס' חשבון","מס חשבון","account");
   const dateIdx=findCol("תאריך","נכון ליום","date");
   const moneyNum=s=>Number(String(s||"").replace(/[^\d.\-]/g,""))||0;
@@ -4651,7 +4661,7 @@ function parseFundsCSVLocally(csvText){
     if(!balance) continue; // skip rows without a usable balance
     const d=dateIdx>=0?parseDate(cols[dateIdx]):{date:new Date().toISOString().slice(0,10),guessed:true};
     items.push({
-      type:guessType(typeIdx>=0?cols[typeIdx]:""),
+      type:guessType(typeIdx>=0&&cols[typeIdx]?cols[typeIdx]:(providerIdx>=0?cols[providerIdx]:"")),
       provider:providerIdx>=0?String(cols[providerIdx]||"").trim():"",
       trackName:trackIdx>=0?String(cols[trackIdx]||"").trim():"",
       fundNumber:fundNumIdx>=0?String(cols[fundNumIdx]||"").trim():"",
@@ -4778,7 +4788,11 @@ async function onFundDocSelected(event){
     // CSV/Excel with a recognizable balance column: parse locally — no API, no AI, no key.
     if(fileParts.kind==="text"){
       const csvBody=fileParts.text.replace(/^תוכן קובץ ה-CSV:\n|^תוכן קובץ האקסל:\n/,"");
-      const localItems=parseFundsCSVLocally(csvBody);
+      // an Excel file arrives as "גיליון: <name>" sections — parse each sheet on its own
+      let localItems=[];
+      csvBody.split(/(?:^|\n)גיליון: [^\n]*\n/).filter(sec=>sec.trim()).forEach(sec=>{
+        const it=parseFundsCSVLocally(sec); if(it&&it.length) localItems=localItems.concat(it);
+      });
       if(localItems && localItems.length){
         fundImportSetStatus(`זוהו ${localItems.length} רשומות מהקובץ. בדוק ואשר למטה לפני שמירה.`);
         renderFundImportReview(localItems);
