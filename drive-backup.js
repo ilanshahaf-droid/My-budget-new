@@ -95,12 +95,11 @@ async function driveToken() {
   return j.access_token;
 }
 
-async function uploadToDrive(buf, name) {
+async function uploadToDrive(buf, name, mime) {
   const token = await driveToken();
   const folder = env("DRIVE_FOLDER_ID");
   const boundary = "bkp" + Date.now();
   const meta = JSON.stringify({ name, parents: [folder] });
-  const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`),
     buf, Buffer.from(`\r\n--${boundary}--`)
@@ -116,17 +115,35 @@ async function uploadToDrive(buf, name) {
 (async () => {
   const now = new Date();
   const today = ilParts(now), tomorrow = ilParts(new Date(now.getTime() + 864e5));
+  const isFriday = new Date(today + "T12:00:00Z").getUTCDay() === 5; // weekday of the Israel date
   const manual = process.env.FORCE === "true" || process.env.GITHUB_EVENT_NAME === "workflow_dispatch";
-  if (!manual && today.slice(0, 7) === tomorrow.slice(0, 7)) { console.log("לא סוף חודש (" + today + ") — מדלג"); return; }
+  const monthEnd = today.slice(0, 7) !== tomorrow.slice(0, 7);
+  const doExcel = manual || monthEnd;            // monthly Excel report
+  const doJson = manual || monthEnd || isFriday; // weekly full JSON (restorable) backup
+  if (!doExcel && !doJson) { console.log("אין גיבוי מתוזמן להיום (" + today + ") — מדלג"); return; }
 
-  const htmlCandidates = [process.env.APP_HTML, "index.html", "pwa/index.html"].filter(Boolean);
-  const htmlFound = htmlCandidates.find(f => fs.existsSync(f));
-  if (!htmlFound) throw new Error("לא נמצא index.html של האפליקציה");
-  const html = path.resolve(htmlFound);
   const state = process.env.LOCAL_STATE_FILE ? JSON.parse(fs.readFileSync(process.env.LOCAL_STATE_FILE, "utf8")) : await fetchState();
-  const buf = await buildXlsx(state, html);
-  await sanityCheck(buf);
-  const name = `דוח-תקציב-מלא-${today}.xlsx`;
-  if (process.env.DRY_RUN === "true") { fs.writeFileSync(process.env.DRY_OUT || "out.xlsx", buf); console.log("DRY_RUN: נשמר מקומית", name); return; }
-  await uploadToDrive(buf, name);
+  const dry = process.env.DRY_RUN === "true";
+  const outDir = process.env.DRY_OUT_DIR || ".";
+
+  if (doJson) {
+    const n = (state.spendee || []).length + (state.manual || []).length;
+    if (!n) throw new Error("ב-JSON אין תנועות — לא מעלה");
+    const jbuf = Buffer.from(JSON.stringify(state, null, 2), "utf8");
+    const jname = `budget-v4-backup-${today}.json`;
+    console.log("JSON:", jname, Math.round(jbuf.length / 1024) + "KB,", n, "תנועות");
+    if (dry) fs.writeFileSync(path.join(outDir, jname), jbuf); else await uploadToDrive(jbuf, jname, "application/json");
+  }
+
+  if (doExcel) {
+    const htmlCandidates = [process.env.APP_HTML, "index.html", "pwa/index.html"].filter(Boolean);
+    const htmlFound = htmlCandidates.find(f => fs.existsSync(f));
+    if (!htmlFound) throw new Error("לא נמצא index.html של האפליקציה");
+    const buf = await buildXlsx(state, path.resolve(htmlFound));
+    await sanityCheck(buf);
+    const name = `דוח-תקציב-מלא-${today}.xlsx`;
+    const xmime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (dry) { fs.writeFileSync(path.join(outDir, name), buf); console.log("DRY_RUN: נשמר", name); }
+    else await uploadToDrive(buf, name, xmime);
+  }
 })().catch(e => { console.error("❌", e.message); process.exit(1); });
