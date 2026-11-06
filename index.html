@@ -13151,4 +13151,231 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 })();
 </script>
 
+
+<!-- ===================== חיבור לחצי חצי (הוצאות הילדים) ===================== -->
+<style>
+#hzPill{position:fixed;bottom:96px;left:14px;z-index:100000;background:#5B5FA0;color:#fff;border:0;border-radius:999px;padding:10px 16px;font:inherit;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.25);display:none}
+#hzBack{position:fixed;inset:0;background:rgba(10,15,25,.45);z-index:100001;display:none;align-items:flex-end;justify-content:center}
+#hzBack.open{display:flex}
+#hzSheet{background:#fff;color:#1e2940;width:100%;max-width:560px;max-height:90%;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(18px + env(safe-area-inset-bottom,0px));direction:rtl}
+#hzSheet h3{margin:0 0 4px;font-size:19px}
+#hzSheet .hz-sub{color:#66707f;font-size:14px;margin:0 0 10px}
+.hz-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid #e3e7e1}
+.hz-row input[type=checkbox]{width:20px;height:20px;margin-top:3px}
+.hz-row .hz-d{font-weight:600}
+.hz-row .hz-m{font-size:13px;color:#66707f}
+.hz-row .hz-a{font-weight:700;white-space:nowrap}
+.hz-row select{margin-top:6px;width:100%;font:inherit;padding:6px 8px;border:1px solid #d5dbd3;border-radius:10px;background:#f5f7f4}
+.hz-tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;margin-left:6px}
+.hz-tag.new{background:#e3f0e8;color:#3f7a5a}.hz-tag.upd{background:#ecedf7;color:#5b5fa0}.hz-tag.del{background:#f7e6e1;color:#a94f38}
+.hz-act{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.hz-act button{flex:1;font:inherit;font-weight:700;padding:12px;border-radius:12px;border:1px solid #d5dbd3;background:#fff;color:#1e2940}
+.hz-act .hz-ok{background:#1e2940;color:#fff;border-color:#1e2940}
+.hz-act button:disabled{opacity:.5}
+.hz-err{color:#a94f38;font-size:14px;min-height:1em;margin-top:8px}
+.hz-key{direction:ltr;font-family:monospace;font-size:13px;word-break:break-all;background:#f5f7f4;border:1px solid #d5dbd3;border-radius:10px;padding:8px;margin:8px 0}
+@media (prefers-color-scheme:dark){#hzSheet{background:#1c2330;color:#e7ebf0}.hz-row{border-color:#2e3746}.hz-row select,.hz-key{background:#141a24;color:#e7ebf0;border-color:#2e3746}.hz-act button{background:#1c2330;color:#e7ebf0;border-color:#2e3746}.hz-act .hz-ok{background:#e7ebf0;color:#141a24}}
+</style>
+<button id="hzPill" type="button"></button>
+<div id="hzBack"><div id="hzSheet" role="dialog" aria-modal="true"></div></div>
+<script>
+(function(){
+  "use strict";
+  const LINK_LS="hetziBudgetLink";            // קורא גם מחצי חצי (אותו דומיין github.io)
+  const SUGGEST={"חוגים":"חוגים","בריאות":"תרופות ורופאים","טיפוח וביגוד":"ביגוד","ביגוד":"ביגוד","סלולר":"טלפון",
+    "חינוך":"מסגרות חינוך","פנאי ומתנות":"אירועים ומתנות","ביטוחים":"ביטוחים - ילדים"};
+  const g=id=>document.getElementById(id);
+  const money=n=>"₪"+Number(n||0).toLocaleString("he-IL",{maximumFractionDigits:2});
+  const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  let pending=[], busy=false, linkKey=null;
+
+  function ready(){
+    try{ return !!(supabaseClient && cloudUserObj && localStorage.getItem(cloudReadyKey())==="1"); }catch(e){ return false; }
+  }
+  function flash(m){ try{ budgetFlash(m); }catch(e){ alert(m); } }
+
+  // ---------- categories ----------
+  function catsFor(type){
+    const set=new Set();
+    try{
+      if(type==="Expense") Object.keys((state.settings&&state.settings.budgets)||{}).forEach(c=>set.add(c));
+      else ((state.settings&&state.settings.extraIncomeCats)||[]).forEach(c=>set.add(c));
+      (state.spendee||[]).concat(state.manual||[]).forEach(x=>{ if(x&&x.type===type&&x.category) set.add(type==="Expense"&&typeof mapCat==="function"?mapCat(x.category):x.category); });
+    }catch(e){}
+    return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,"he"));
+  }
+  function catMap(){ state.settings=state.settings||{}; state.settings.hetziCatMap=state.settings.hetziCatMap||{}; return state.settings.hetziCatMap; }
+  function guessCat(p){
+    const list=catsFor(p.type), key=p.type+"|"+(p.category||"");
+    const saved=catMap()[key]; if(saved && list.includes(saved)) return saved;
+    if(p.category && list.includes(p.category)) return p.category;
+    const s=SUGGEST[p.category]; if(p.type==="Expense" && s && list.includes(s)) return s;
+    return "";
+  }
+
+  // ---------- transactions ----------
+  function findTx(hid){ return (state.manual||[]).find(x=>x&&x.hetziId===hid); }
+  function buildTx(p,cat,hid){
+    const half=Math.round(Number(p.amount)*100)/100;
+    const who=(p.type==="Expense"?"שילם/ה ":"קיבל/ה ")+(p.payer||"");
+    const note=(p.desc||"")+" (חצי חצי: 50% מ־"+money(p.full)+", "+who+")";
+    return {date:p.date+"T12:00:00",type:p.type,category:cat,amount:p.type==="Expense"?-half:half,note:note.trim(),source:"ידני",hetziId:hid};
+  }
+  function tomb(sig){ state.manualDeleted=state.manualDeleted||{}; state.manualDeleted[sig]=Date.now(); }
+  function applyOne(r,cat){
+    state.manual=Array.isArray(state.manual)?state.manual:[];
+    const ex=findTx(r.hetzi_id);
+    if(r.op==="delete"){
+      if(ex){ tomb(txSig(ex)); state.manual=state.manual.filter(x=>x!==ex); }
+      return;
+    }
+    const tx=buildTx(r.payload,cat,r.hetzi_id);
+    if(ex){
+      const old=txSig(ex);
+      Object.assign(ex,tx);
+      const nw=txSig(ex);
+      if(old!==nw) tomb(old);
+      if(state.manualDeleted) delete state.manualDeleted[nw];
+    }else{
+      state.manual.push(tx);
+      if(state.manualDeleted) delete state.manualDeleted[txSig(tx)];
+    }
+  }
+
+  // ---------- inbox ----------
+  async function poll(){
+    if(busy || !ready()) return;
+    busy=true;
+    try{
+      const {data,error}=await supabaseClient.from("hetzi_inbox").select("id,hetzi_id,op,payload,rev").eq("user_id",cloudUserObj.id).eq("pending",true).order("id");
+      if(error){ pending=[]; return; }
+      // a delete for a row that never got into the budget needs no decision
+      const silent=data.filter(r=>r.op==="delete" && !findTx(r.hetzi_id));
+      for(const r of silent) await supabaseClient.from("hetzi_inbox").update({applied_rev:r.rev}).eq("id",r.id);
+      pending=data.filter(r=>!silent.includes(r));
+    }catch(e){}
+    finally{ busy=false; pill(); }
+  }
+  function pill(){
+    const b=g("hzPill"); if(!b) return;
+    if(!pending.length || g("hzBack").classList.contains("open")){ b.style.display="none"; return; }
+    b.textContent="📥 "+pending.length+(pending.length===1?" תנועה":" תנועות")+" מחצי חצי";
+    b.style.display="block";
+  }
+
+  function openReview(){
+    if(!pending.length) return;
+    const rows=pending.map((r,i)=>{
+      const p=r.payload||{}, ex=findTx(r.hetzi_id);
+      const kind=r.op==="delete"?"del":(ex?"upd":"new"), tag={new:"חדשה",upd:"עדכון",del:"מחיקה"}[kind];
+      const half=r.op==="delete"&&ex?Math.abs(ex.amount):p.amount;
+      const desc=r.op==="delete"&&ex?String(ex.note||"").replace(/ \(חצי חצי:.*$/,""):(p.desc||"");
+      const date=r.op==="delete"&&ex?String(ex.date).slice(0,10):p.date;
+      let sel="";
+      if(r.op!=="delete"){
+        const cur=ex?ex.category:guessCat(p);
+        const opts=catsFor(p.type).map(c=>'<option'+(c===cur?' selected':'')+'>'+esc(c)+'</option>').join("");
+        sel='<select data-i="'+i+'"><option value="">בחר קטגוריה…</option>'+opts+'</select>'
+           +'<div class="hz-m">בחצי חצי: '+esc(p.category||"ללא קטגוריה")+'</div>';
+      }
+      const dd=date?date.slice(8,10)+"/"+date.slice(5,7):"";
+      return '<label class="hz-row"><input type="checkbox" data-c="'+i+'" checked>'
+        +'<span><span class="hz-tag '+kind+'">'+tag+'</span><span class="hz-d">'+esc(desc)+'</span>'
+        +'<div class="hz-m">'+dd+(r.op!=="delete"?" · "+(p.type==="Expense"?"הוצאה":"הכנסה")+" · 50% מ־"+money(p.full)+" · "+(p.type==="Expense"?"שילם/ה ":"קיבל/ה ")+esc(p.payer||""):"")+'</div>'
+        +sel+'</span><span class="hz-a">'+money(half)+'</span></label>';
+    }).join("");
+    g("hzSheet").innerHTML='<h3>תנועות מחצי חצי</h3><p class="hz-sub">כל תנועה נרשמת ב־50% מהסכום. סמן מה להכניס ובחר קטגוריה. תנועות שלא יסומנו לא ייכנסו.</p>'
+      +rows+'<div class="hz-err" id="hzErr"></div><div class="hz-act"><button class="hz-ok" id="hzOk">אישור</button><button id="hzLater">לא עכשיו</button></div>';
+    g("hzBack").classList.add("open"); pill();
+    g("hzLater").onclick=closeReview;
+    g("hzOk").onclick=confirmReview;
+  }
+  function closeReview(){ g("hzBack").classList.remove("open"); pill(); }
+
+  async function confirmReview(){
+    const btn=g("hzOk"); g("hzErr").textContent="";
+    const chosen=[], skipped=[];
+    pending.forEach((r,i)=>{
+      const on=g("hzSheet").querySelector('[data-c="'+i+'"]').checked;
+      const s=g("hzSheet").querySelector('select[data-i="'+i+'"]');
+      if(!on){ skipped.push(r); return; }
+      chosen.push({r,cat:s?s.value:""});
+    });
+    if(chosen.some(x=>x.r.op!=="delete"&&!x.cat)){ g("hzErr").textContent="יש לבחור קטגוריה לכל תנועה מסומנת."; return; }
+    if(skipped.length && !confirm(skipped.length+" תנועות לא מסומנות לא ייכנסו לתקציב. להמשיך?")) return;
+    btn.disabled=true;
+    try{
+      try{ if(typeof window.autoBackupBeforeImport==="function") window.autoBackupBeforeImport("before-hetzi-sync"); }catch(e){}
+      chosen.forEach(({r,cat})=>{ applyOne(r,cat); if(r.op!=="delete") catMap()[r.payload.type+"|"+(r.payload.category||"")]=cat; });
+      save(); try{ render(); }catch(e){}
+      for(const r of chosen.map(x=>x.r).concat(skipped))
+        await supabaseClient.from("hetzi_inbox").update({applied_rev:r.rev}).eq("id",r.id);
+      const n=chosen.length;
+      pending=[]; closeReview();
+      flash(n? n+(n===1?" תנועה עודכנה":" תנועות עודכנו")+" מחצי חצי" : "התנועות סומנו כמטופלות");
+      setTimeout(poll,1500);
+    }catch(e){ g("hzErr").textContent="משהו נכשל. נסה שוב."; }
+    btn.disabled=false;
+  }
+
+  // ---------- link (settings card) ----------
+  function randomKey(){ const a=new Uint8Array(24); crypto.getRandomValues(a); return Array.from(a,b=>b.toString(16).padStart(2,"0")).join(""); }
+  async function loadLink(){
+    if(!ready()) return null;
+    const {data}=await supabaseClient.from("hetzi_links").select("link_key").eq("user_id",cloudUserObj.id).maybeSingle();
+    linkKey=data?data.link_key:null;
+    try{ if(linkKey) localStorage.setItem(LINK_LS,JSON.stringify({key:linkKey})); else localStorage.removeItem(LINK_LS); }catch(e){}
+    return linkKey;
+  }
+  async function renderCard(){
+    const box=g("hzCardBody"); if(!box) return;
+    if(!ready()){ box.innerHTML='<div class="muted tiny">צריך להיות מחובר לענן כדי לחבר את חצי חצי.</div>'; return; }
+    await loadLink();
+    if(!linkKey){
+      box.innerHTML='<div class="muted tiny">כל הוצאה והכנסה בחצי חצי תגיע לכאן ב־50% מהסכום, לאישור לפני שהיא נכנסת.</div>'
+        +'<div class="row" style="margin-top:10px"><button class="secondary" id="hzMake">יצירת מפתח חיבור</button></div>';
+      g("hzMake").onclick=async()=>{
+        const {error}=await supabaseClient.from("hetzi_links").upsert({user_id:cloudUserObj.id,link_key:randomKey()});
+        if(error){ alert("יצירת המפתח נכשלה: "+error.message+"\nודא שהרצת את budget-hetzi-sync.sql בפרויקט My Budget."); return; }
+        renderCard();
+      };
+      return;
+    }
+    box.innerHTML='<div class="muted tiny">✓ מחובר. בחצי חצי: הגדרות ← סנכרון לתקציב ← חיבור. בדפדפן הזה החיבור יזוהה אוטומטית; במכשיר אחר הדבק את המפתח:</div>'
+      +'<div class="hz-key" id="hzKeyTxt">'+esc(linkKey)+'</div>'
+      +'<div class="row" style="flex-wrap:wrap;gap:8px"><button class="secondary" id="hzCopy">העתקת מפתח</button><button class="secondary" id="hzCheck">בדיקת תנועות חדשות</button><button class="secondary" id="hzUnlink">ניתוק</button></div>';
+    g("hzCopy").onclick=async()=>{ try{ await navigator.clipboard.writeText(linkKey); flash("המפתח הועתק"); }catch(e){ prompt("העתק את המפתח:",linkKey); } };
+    g("hzCheck").onclick=async()=>{ await poll(); if(pending.length) openReview(); else flash("אין תנועות חדשות מחצי חצי"); };
+    g("hzUnlink").onclick=async()=>{
+      if(!confirm("לנתק את חצי חצי? תנועות שכבר נכנסו יישארו, וחדשות לא יגיעו.")) return;
+      await supabaseClient.from("hetzi_links").delete().eq("user_id",cloudUserObj.id);
+      renderCard();
+    };
+  }
+  function addCard(){
+    if(g("hzCard")) return;
+    const page=g("settingsPage"); if(!page) return;
+    const card=document.createElement("div"); card.className="card"; card.id="hzCard";
+    card.innerHTML='<b>🔗 חצי חצי (הוצאות הילדים)</b><div id="hzCardBody" style="margin-top:8px"></div>';
+    const anchor=[...page.querySelectorAll(".card")].find(c=>c.textContent.includes("גיבוי ושחזור"));
+    if(anchor) anchor.after(card); else page.appendChild(card);
+    renderCard();
+  }
+
+  // ---------- boot ----------
+  function boot(){
+    g("hzPill").onclick=openReview;
+    g("hzBack").addEventListener("click",e=>{ if(e.target===g("hzBack")) closeReview(); });
+    addCard();
+    let wasReady=false;
+    setInterval(()=>{ const r=ready(); if(r&&!wasReady){ poll(); renderCard(); } wasReady=r; },2000);
+    setInterval(poll,5*60*1000);
+    document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(poll,2500); });
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(boot,300));
+  else setTimeout(boot,300);
+  window.hetziSyncPoll=poll;
+})();
+</script>
+
 </body></html>
