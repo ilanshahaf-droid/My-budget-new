@@ -7945,7 +7945,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  function drawRecList(){
    const list=Array.isArray(state.recurring)?state.recurring:[];
    q("qaRecBox").querySelector("summary").textContent="🔁 הוצאות חוזרות"+(list.length?` (${list.length})`:"");
-   q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b> · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
+   q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b>${(Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length)?' <span class="hzrec" title="הסכום מגיע מחצי חצי">↻ <i>חצי חצי</i></span>':''} · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
  }
  function setEditUi(on,spendee){
    q("qaTitle").style.display=on?"block":"none";
@@ -9081,9 +9081,10 @@ if ("serviceWorker" in navigator) {
     const num=String(amount).replace(/[₪\s]/g,"");
     const sub=note&&note!==cat?note:"";
     let isRec=false; try{ isRec=!!(sk&&window.__recSet&&window.__recSet.has(decodeURIComponent(sk))); }catch(e){ isRec=!!(sk&&window.__recSet&&window.__recSet.has(sk)); }
+    let isHz=false; try{ isHz=!!(sk&&typeof window.hzLinkedKeySet==="function"&&window.hzLinkedKeySet().has(decodeURIComponent(sk))); }catch(e){}
     return `<div class="qrow"${sk?` onclick="openTxEditor('${sk}')" role="button" tabindex="0"`:""}>
       <span class="qicon" style="background:${bg}">${icon}</span>
-      <div class="qmain"><b dir="auto">${escapeHtml(cat)}${isRec?' <span class="qrec" title="הוצאה חוזרת">🔁</span>':''}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
+      <div class="qmain"><b dir="auto">${escapeHtml(cat)}${isHz?' <span class="hzrec" title="קבועה משויכת לחצי חצי">↻ <i>חצי חצי</i></span>':(isRec?' <span class="qrec" title="הוצאה חוזרת">🔁</span>':'')}</b>${sub?`<small dir="auto">${escapeHtml(sub)}</small>`:""}</div>
       <span class="qamt${isIncome?" qin":""}" dir="ltr">₪ ${isIncome?"+":"-"}${escapeHtml(num)}</span>
     </div>`;
   }
@@ -9430,7 +9431,8 @@ if ("serviceWorker" in navigator) {
       const note=(x.note||"").trim();
       const sk=typeof stableTxKey==="function"?encodeURIComponent(stableTxKey(x)):"";
       let isRec=false; try{ isRec=recStableKeys().has(stableTxKey(x)); }catch(e){}
-      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${isRec?"🔁 ":""}${escapeHtml(note||category.name)}</span><b>${fmt(v)}</b></div>`;
+      let isHz=false; try{ isHz=typeof window.hzLinkedKeySet==="function"&&window.hzLinkedKeySet().has(stableTxKey(x)); }catch(e){}
+      return `<div class="rc35-tx-item"${sk?` data-sk="${sk}"`:""}><span class="d">${dl}</span><span class="n" dir="auto">${isHz?'<span class="hzrec" title="קבועה משויכת לחצי חצי">↻</span> ':(isRec?"🔁 ":"")}${escapeHtml(note||category.name)}</span><b>${fmt(v)}</b></div>`;
     }).join("");
     if(!isYear && !isInc){
       const p=(state.expectedExpenses||[]).find(e=>e.autoKibbutz===true && e.month===key && e.kibbutzCategory===category.name && !e.paid);
@@ -13155,6 +13157,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 
 
 
+
 <!-- ===================== חיבור לחצי חצי (הוצאות הילדים) ===================== -->
 <style>
 #hzPill{position:fixed;bottom:96px;left:14px;z-index:100000;background:#5B5FA0;color:#fff;border:0;border-radius:999px;padding:10px 16px;font:inherit;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.25);display:none}
@@ -13175,6 +13178,8 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 .hz-act button{flex:1;font:inherit;font-weight:700;padding:12px;border-radius:12px;border:1px solid #d5dbd3;background:#fff;color:#1e2940}
 .hz-act .hz-ok{background:#1e2940;color:#fff;border-color:#1e2940}
 .hz-act button:disabled{opacity:.5}
+.hzrec{display:inline-flex;align-items:center;gap:3px;background:#1E2940;color:#7BC29B;font-size:11px;font-weight:800;line-height:1;padding:3px 7px;border-radius:999px;margin-inline-start:4px;vertical-align:middle;white-space:nowrap}
+.hzrec i{font-style:normal;color:#fff}
 .hz-err{color:#a94f38;font-size:14px;min-height:1em;margin-top:8px}
 .hz-key{direction:ltr;font-family:monospace;font-size:13px;word-break:break-all;background:#f5f7f4;border:1px solid #d5dbd3;border-radius:10px;padding:8px;margin:8px 0}
 @media (prefers-color-scheme:dark){#hzSheet{background:#1c2330;color:#e7ebf0}.hz-row{border-color:#2e3746}.hz-row select,.hz-key{background:#141a24;color:#e7ebf0;border-color:#2e3746}.hz-act button{background:#1c2330;color:#e7ebf0;border-color:#2e3746}.hz-act .hz-ok{background:#e7ebf0;color:#141a24}}
@@ -13388,6 +13393,17 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     const sum=recs.filter(t=>ids.has(t.id)&&t.type===wantType(r)&&occurs(t,ym)).reduce((s,t)=>s+Number(t.amount||0),0);
     return Math.round(sum*50)/100;
   }
+  // transactions created by a budget rule that is linked to Hetzi recurring items (for the ↻ חצי חצי badge)
+  let _hzK={t:0,s:null};
+  window.hzLinkedKeySet=function(){
+    const n=Date.now(); if(_hzK.s&&n-_hzK.t<400) return _hzK.s;
+    const s=new Set();
+    try{
+      const ids=new Set((state.recurring||[]).filter(r=>r&&Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length).map(r=>r.id));
+      if(ids.size) (state.manual||[]).forEach(x=>{ if(x&&x.recKey&&ids.has(String(x.recKey).split("|")[0])){ try{ s.add(stableTxKey(x)); }catch(e){} } });
+    }catch(e){}
+    _hzK={t:n,s}; return s;
+  };
   window.hetziRecAmount=(r,ym)=>{ const a=linkedAmount(r,ym); return a==null?r.amount:a; };
   function nextAmount(r){
     const rd=Array.isArray(r.done)?r.done:[]; let ym=curYm(); if(rd.includes(ym)) ym=ymAdd(ym,1);
