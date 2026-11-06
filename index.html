@@ -7929,7 +7929,9 @@ $("kibbutzInvoiceFile").onchange=async e=>{
          r.done.push(ym);
          const key=r.id+"|"+ym;
          if(!have.has(key)){
-           state.manual.push({date:ds+"T12:00:00",type:r.type,category:r.category,amount:r.type==="Expense"?-r.amount:r.amount,note:r.note||"",source:"ידני",recKey:key});
+           // a rule linked to Hetzi recurring items gets that month's 50% sum (0 = nothing due this month)
+           const amt=(Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length&&typeof window.hetziRecAmount==="function")?Number(window.hetziRecAmount(r,ym)):Number(r.amount);
+           if(amt>0) state.manual.push({date:ds+"T12:00:00",type:r.type,category:r.category,amount:r.type==="Expense"?-amt:amt,note:r.note||"",source:"ידני",recKey:key});
            have.add(key);
          }
          changed=true;
@@ -13152,6 +13154,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 </script>
 
 
+
 <!-- ===================== חיבור לחצי חצי (הוצאות הילדים) ===================== -->
 <style>
 #hzPill{position:fixed;bottom:96px;left:14px;z-index:100000;background:#5B5FA0;color:#fff;border:0;border-radius:999px;padding:10px 16px;font:inherit;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.25);display:none}
@@ -13343,7 +13346,8 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     }
     box.innerHTML='<div class="muted tiny">✓ מחובר. בחצי חצי: הגדרות ← סנכרון לתקציב ← חיבור. בדפדפן הזה החיבור יזוהה אוטומטית; במכשיר אחר הדבק את המפתח:</div>'
       +'<div class="hz-key" id="hzKeyTxt">'+esc(linkKey)+'</div>'
-      +'<div class="row" style="flex-wrap:wrap;gap:8px"><button class="secondary" id="hzCopy">העתקת מפתח</button><button class="secondary" id="hzCheck">בדיקת תנועות חדשות</button><button class="secondary" id="hzUnlink">ניתוק</button></div>';
+      +'<div class="row" style="flex-wrap:wrap;gap:8px"><button class="secondary" id="hzLinks">🔁 שיוך הוצאות קבועות</button><button class="secondary" id="hzCopy">העתקת מפתח</button><button class="secondary" id="hzCheck">בדיקת תנועות חדשות</button><button class="secondary" id="hzUnlink">ניתוק</button></div>';
+    g("hzLinks").onclick=openLinks;
     g("hzCopy").onclick=async()=>{ try{ await navigator.clipboard.writeText(linkKey); flash("המפתח הועתק"); }catch(e){ prompt("העתק את המפתח:",linkKey); } };
     g("hzCheck").onclick=async()=>{ await poll(); if(pending.length) openReview(); else flash("אין תנועות חדשות מחצי חצי"); };
     g("hzUnlink").onclick=async()=>{
@@ -13362,15 +13366,123 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     renderCard();
   }
 
+  // ---------- recurring links (קבועות של חצי חצי ← קבועה בתקציב) ----------
+  const MIRROR_LS=()=>"hetziRecMirror:"+(cloudUserObj?cloudUserObj.id:"");
+  const INTV={1:"כל חודש",2:"כל חודשיים",3:"כל 3 חודשים",6:"כל חצי שנה",12:"פעם בשנה"};
+  const MON=["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+  function mirror(){ try{ const v=JSON.parse(localStorage.getItem(MIRROR_LS())||"null"); return v&&Array.isArray(v.recs)?v.recs:null; }catch(e){ return null; } }
+  const ymNum=ym=>{ const [y,m]=String(ym).split("-").map(Number); return y*12+(m-1); };
+  const ymAdd=(ym,n)=>{ const k=ymNum(ym)+n; return Math.floor(k/12)+"-"+String(k%12+1).padStart(2,"0"); };
+  const curYm=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
+  function occurs(t,ym){
+    if(!t||!t.active||!t.start_month) return false;
+    if(ym<t.start_month || (t.end_month && ym>t.end_month)) return false;
+    const iv=Math.max(1,Number(t.interval_months)||1), d=ymNum(ym)-ymNum(t.last_generated||t.start_month);
+    return ((d%iv)+iv)%iv===0;
+  }
+  const wantType=r=>r.type==="Income"?"income":"expense";
+  // 50% of the linked Hetzi recurring items that fall in this month; null when the list was never loaded
+  function linkedAmount(r,ym){
+    const recs=mirror(); if(!recs) return null;
+    const ids=new Set(r.hetziRecIds||[]);
+    const sum=recs.filter(t=>ids.has(t.id)&&t.type===wantType(r)&&occurs(t,ym)).reduce((s,t)=>s+Number(t.amount||0),0);
+    return Math.round(sum*50)/100;
+  }
+  window.hetziRecAmount=(r,ym)=>{ const a=linkedAmount(r,ym); return a==null?r.amount:a; };
+  function nextAmount(r){
+    const rd=Array.isArray(r.done)?r.done:[]; let ym=curYm(); if(rd.includes(ym)) ym=ymAdd(ym,1);
+    for(let i=0;i<12;i++){ const a=linkedAmount(r,ymAdd(ym,i)); if(a==null) return null; if(a>0) return a; }
+    return 0;
+  }
+  const linkedRules=()=>(state.recurring||[]).filter(r=>r&&Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length);
+  // keeps the amount shown in the budget's own recurring list equal to the next payment
+  function refreshRuleAmounts(){
+    let ch=false;
+    linkedRules().forEach(r=>{ const a=nextAmount(r); if(a!=null&&a>0&&Math.abs(a-Number(r.amount))>0.004){ r.amount=a; r.modAt=Date.now(); ch=true; } });
+    if(ch){ save(); try{ render(); }catch(e){} }
+  }
+  async function fetchMirror(){
+    if(!ready()) return;
+    try{
+      const {data,error}=await supabaseClient.from("hetzi_rec_mirror").select("recs,updated_at").eq("user_id",cloudUserObj.id).maybeSingle();
+      if(error) return;
+      localStorage.setItem(MIRROR_LS(),JSON.stringify({recs:(data&&data.recs)||[],at:data&&data.updated_at}));
+      refreshRuleAmounts();
+    }catch(e){}
+  }
+  window.hetziFetchMirror=fetchMirror;
+
+  const recLabel=t=>(INTV[t.interval_months]||("כל "+t.interval_months+" חודשים"))+(t.end_month?" עד "+t.end_month.slice(5)+"/"+t.end_month.slice(0,4):"")+(t.active?"":" · מושהית");
+  const ruleName=r=>(r.category||"")+(r.note?" · "+r.note:"");
+  function ownerOf(id,except){ return linkedRules().find(r=>r!==except&&r.hetziRecIds.includes(id)); }
+
+  async function openLinks(){
+    await fetchMirror();
+    const recs=mirror();
+    if(!recs){ flash("לא הצלחתי לטעון את הקבועות מחצי חצי. ודא שהרצת את budget-hetzi-recurring.sql."); return; }
+    const rules=(state.recurring||[]).filter(r=>r&&r.id).slice().sort((a,b)=>(a.type+a.category).localeCompare(b.type+b.category,"he"));
+    const linkedIds=new Set(linkedRules().flatMap(r=>r.hetziRecIds));
+    const free=recs.filter(t=>!linkedIds.has(t.id));
+    let h='<h3>שיוך קבועות מחצי חצי</h3><p class="hz-sub">בחר קבועה של התקציב וסמן אילו קבועות של חצי חצי היא כוללת. הסכום שלה יהיה 50% מסכומן, ויתעדכן לבד כשמשנים אותן בחצי חצי (מהחודש הבא). קבועה שלא חוזרת כל חודש נכנסת רק בחודש שבו היא חלה.</p>';
+    if(!rules.length) h+='<p class="hz-sub">אין עדיין קבועות בתקציב.</p>';
+    h+=rules.map((r,i)=>{
+      const n=(r.hetziRecIds||[]).length, a=n?nextAmount(r):null;
+      return '<button class="hz-row hz-rule" data-r="'+i+'" style="width:100%;text-align:right;background:none;border:0;border-bottom:1px solid #e3e7e1;font:inherit;color:inherit">'
+        +'<span>'+(n?"🔗":"·")+'</span><span><span class="hz-d">'+esc(ruleName(r))+'</span><div class="hz-m">'+(r.type==="Income"?"הכנסה":"הוצאה")+' · ב־'+esc(r.day)+' לחודש'
+        +(n?' · משויכות '+n+' מחצי חצי':'')+'</div></span><span class="hz-a">'+money(n&&a!=null?a:r.amount)+'</span></button>';
+    }).join("");
+    if(free.length) h+='<h3 style="margin-top:18px;font-size:16px">קבועות בחצי חצי שלא שויכו ('+free.length+')</h3>'
+      +free.map(t=>'<div class="hz-row" style="grid-template-columns:1fr auto"><span><span class="hz-d">'+esc(t.description||"")+'</span><div class="hz-m">'+(t.type==="income"?"הכנסה":"הוצאה")+' · '+esc(recLabel(t))+'</div></span><span class="hz-a">'+money(t.amount/2)+'</span></div>').join("");
+    h+='<div class="hz-act"><button id="hzLClose">סגירה</button></div>';
+    g("hzSheet").innerHTML=h; g("hzBack").classList.add("open"); pill();
+    g("hzLClose").onclick=closeReview;
+    g("hzSheet").querySelectorAll(".hz-rule").forEach(b=>b.onclick=()=>openRuleLink(rules[+b.dataset.r]));
+  }
+
+  function openRuleLink(r){
+    const recs=(mirror()||[]).filter(t=>t.type===wantType(r));
+    const sel=new Set(r.hetziRecIds||[]);
+    const preview=()=>{
+      const tmp={type:r.type,hetziRecIds:[...sel],done:r.done};
+      let ym=curYm(); if((r.done||[]).includes(ym)) ym=ymAdd(ym,1);
+      const parts=[]; for(let i=0;i<6;i++){ const m=ymAdd(ym,i); parts.push(MON[Number(m.slice(5))-1]+": "+money(linkedAmount(tmp,m)||0)); }
+      g("hzPrev").textContent=sel.size?parts.join(" · "):"לא נבחרו קבועות. הקבועה תחזור לסכום קבוע.";
+    };
+    let h='<h3>'+esc(ruleName(r))+'</h3><p class="hz-sub">'+(r.type==="Income"?"הכנסה":"הוצאה")+' קבועה בתקציב · מוצגות קבועות '+(r.type==="Income"?"הכנסה":"הוצאה")+' של חצי חצי</p>';
+    if(!recs.length) h+='<p class="hz-sub">אין בחצי חצי קבועות מהסוג הזה.</p>';
+    h+=recs.map((t,i)=>{
+      const o=ownerOf(t.id,r);
+      return '<label class="hz-row"><input type="checkbox" data-t="'+i+'"'+(sel.has(t.id)?" checked":"")+'><span><span class="hz-d">'+esc(t.description||"")+'</span>'
+        +'<div class="hz-m">'+esc(recLabel(t))+' · '+esc(t.category||"")+' · מלא '+money(t.amount)+(o?' · <b>משויכת כעת ל־'+esc(ruleName(o))+'</b>'+(sel.has(t.id)?'':' (סימון יעביר אותה לכאן)'):'')+'</div></span>'
+        +'<span class="hz-a">'+money(t.amount/2)+'</span></label>';
+    }).join("");
+    h+='<p class="hz-sub" style="margin-top:12px"><b>סכום בתקציב בחודשים הקרובים:</b><br><span id="hzPrev"></span></p>'
+      +'<div class="hz-err" id="hzErr"></div><div class="hz-act"><button class="hz-ok" id="hzLSave">שמירה</button><button id="hzLBack">חזרה</button></div>';
+    g("hzSheet").innerHTML=h;
+    g("hzSheet").querySelectorAll('input[data-t]').forEach(cb=>cb.onchange=()=>{ const id=recs[+cb.dataset.t].id; cb.checked?sel.add(id):sel.delete(id); preview(); });
+    preview();
+    g("hzLBack").onclick=openLinks;
+    g("hzLSave").onclick=()=>{
+      const ids=[...sel];
+      ids.forEach(id=>{ const o=ownerOf(id,r); if(o){ o.hetziRecIds=o.hetziRecIds.filter(x=>x!==id); o.modAt=Date.now(); } });
+      if(ids.length) r.hetziRecIds=ids; else delete r.hetziRecIds;
+      r.modAt=Date.now();
+      const a=ids.length?nextAmount(r):null; if(a!=null&&a>0) r.amount=a;
+      save(); try{ render(); }catch(e){}
+      flash(ids.length?"השיוך נשמר. הסכום יתעדכן מהחודש הבא":"השיוך הוסר");
+      openLinks();
+    };
+  }
+
   // ---------- boot ----------
   function boot(){
     g("hzPill").onclick=openReview;
     g("hzBack").addEventListener("click",e=>{ if(e.target===g("hzBack")) closeReview(); });
     addCard();
     let wasReady=false;
-    setInterval(()=>{ const r=ready(); if(r&&!wasReady){ poll(); renderCard(); } wasReady=r; },2000);
-    setInterval(poll,5*60*1000);
-    document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(poll,2500); });
+    setInterval(()=>{ const r=ready(); if(r&&!wasReady){ poll(); fetchMirror(); renderCard(); } wasReady=r; },2000);
+    setInterval(()=>{ poll(); fetchMirror(); },5*60*1000);
+    document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(()=>{ poll(); fetchMirror(); },2500); });
   }
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(boot,300));
   else setTimeout(boot,300);
