@@ -2570,6 +2570,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 #rc25TxList .qrow{display:flex;align-items:center;gap:10px;direction:ltr;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
 #rc25TxList .qrow:last-child{border-bottom:0}
 #rc25TxList .qicon{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px}
+#rc25TxList{grid-template-columns:minmax(0,1fr)}#rc25TxList>*{min-width:0}
 #rc25TxList .qmain{flex:1;min-width:0;display:flex;flex-direction:column;text-align:left}
 #rc25TxList .qmain b{font-size:15px;font-weight:700;color:var(--text);unicode-bidi:plaintext;text-align:left}
 #rc25TxList .qmain small{font-size:12px;color:var(--muted);unicode-bidi:plaintext;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -13554,13 +13555,12 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     const parts=[];
     if(m){
       if(Number(m.allowance)) parts.push("דמי כיס "+money(m.allowance));
-      if(Number(m.walk)) parts.push("בונוס הליכה "+money(m.walk));
-      if(Number(m.bonus)) parts.push("בונוסים "+money(m.bonus));
+      if(Number(m.walk)) parts.push("הליכה "+money(m.walk));
+      if(Number(m.bonus)) parts.push("בונוס "+money(m.bonus));
       if(Number(m.requests)) parts.push("בקשות "+money(m.requests));
-      if(Number(m.takes)) parts.push("משיכות −"+money(Math.abs(m.takes)));
     }
-    let n=(r.note?r.note+" · ":"")+"מהקופה"+(parts.length?": "+parts.join(", "):"");
-    if(ym===curYm() && base>r2(m&&m.total)) n+=" · עד עכשיו "+money(r2(m&&m.total))+" (מוצג הסכום הקבוע עד סוף החודש)";
+    let n=(r.note?r.note+" · ":"")+"מהקופה"+(parts.length?": "+parts.join(" + "):"");
+    if(m&&Number(m.takes)) n+=" − משיכות "+money(Math.abs(m.takes));
     return n;
   }
   // what should change: the rule's transaction in each month from the link month on.
