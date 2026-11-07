@@ -7945,7 +7945,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  function drawRecList(){
    const list=Array.isArray(state.recurring)?state.recurring:[];
    q("qaRecBox").querySelector("summary").textContent="🔁 הוצאות חוזרות"+(list.length?` (${list.length})`:"");
-   q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b>${(Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length)?' <span class="hzrec" title="הסכום מגיע מחצי חצי">↻ <i>חצי חצי</i></span>':''} · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
+   q("qaRecList").innerHTML=list.length?list.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)"><div style="flex:1"><b>${kibEsc(r.category)}</b>${(Array.isArray(r.hetziRecIds)&&r.hetziRecIds.length)?' <span class="hzrec" title="הסכום מגיע מחצי חצי">↻ <i>חצי חצי</i></span>':''}${r.kupaLink?' <span class="hzrec" title="הסכום מתעדכן מהקופה">↻ <i>הקופה</i></span>':''} · ₪${Number(r.amount).toFixed(2)}<div class="muted tiny">ב־${r.day} לחודש${r.note?" · "+kibEsc(r.note):""}</div></div><button type="button" class="danger" data-rid="${kibEsc(r.id)}">הפסק</button></div>`).join(""):'<div class="muted tiny" style="padding:8px 0">אין הוצאות חוזרות.</div>';
  }
  function setEditUi(on,spendee){
    q("qaTitle").style.display=on?"block":"none";
@@ -13503,6 +13503,181 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(boot,300));
   else setTimeout(boot,300);
   window.hetziSyncPoll=poll;
+})();
+</script>
+
+<script>
+/* ===== הקופה (דמי כיס) — הסכום החודשי של הקבועה מתעדכן מאפליקציית הקופה ===== */
+(function(){
+  "use strict";
+  const SHARED_LS="kupaBudgetLink";          // נשמר ע"י אפליקציית הקופה (אותו דומיין github.io)
+  const CACHE_LS="kupaMonthsCache";
+  const g=id=>document.getElementById(id);
+  const money=n=>"₪"+Number(n||0).toLocaleString("he-IL",{maximumFractionDigits:2});
+  const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const ymNum=ym=>{ const [y,m]=String(ym).split("-").map(Number); return y*12+(m-1); };
+  const ymAdd=(ym,n)=>{ const k=ymNum(ym)+n; return Math.floor(k/12)+"-"+String(k%12+1).padStart(2,"0"); };
+  const curYm=()=>{ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); };
+  const r2=n=>Math.round(Number(n||0)*100)/100;
+  let busy=false, lastErr="";
+
+  function ready(){ try{ return !!(supabaseClient && cloudUserObj && localStorage.getItem(cloudReadyKey())==="1"); }catch(e){ return false; } }
+  function flash(m){ try{ budgetFlash(m); }catch(e){ alert(m); } }
+  function sett(){ state.settings=state.settings||{}; return state.settings; }
+  function parseCode(c){
+    c=String(c||"").trim(); if(!c.startsWith("KUPA1:")) return null;
+    try{ const o=JSON.parse(decodeURIComponent(escape(atob(c.slice(6))))); if(o&&o.u&&o.k&&o.s) return o; }catch(e){}
+    try{ const o=JSON.parse(atob(c.slice(6))); if(o&&o.u&&o.k&&o.s) return o; }catch(e){}
+    return null;
+  }
+  const link=()=>parseCode(sett().kupaLink);
+  const rule=()=>(state.recurring||[]).find(r=>r&&r.kupaLink&&r.type==="Expense");
+  function cache(){ try{ const c=JSON.parse(localStorage.getItem(CACHE_LS)||"null"); return c&&c.months?c:null; }catch(e){ return null; } }
+
+  async function fetchMonths(){
+    const L=link(); if(!L) return null;
+    const h={"apikey":L.k,"Content-Type":"application/json"};
+    if(String(L.k).startsWith("eyJ")) h.Authorization="Bearer "+L.k;
+    const res=await fetch(String(L.u).replace(/\/+$/,"")+"/rest/v1/rpc/kupa_budget_months",{method:"POST",headers:h,body:JSON.stringify({p_secret:L.s})});
+    if(!res.ok){
+      let t=""; try{ t=await res.text(); }catch(e){}
+      if(res.status===404) throw new Error("missing");
+      if(/not allowed/.test(t)) throw new Error("badcode");
+      throw new Error("net");
+    }
+    const c={months:(await res.json())||{},at:Date.now()};
+    try{ localStorage.setItem(CACHE_LS,JSON.stringify(c)); }catch(e){}
+    return c;
+  }
+
+  function noteFor(r,m,ym,base){
+    const parts=[];
+    if(m){
+      if(Number(m.allowance)) parts.push("דמי כיס "+money(m.allowance));
+      if(Number(m.walk)) parts.push("בונוס הליכה "+money(m.walk));
+      if(Number(m.bonus)) parts.push("בונוסים "+money(m.bonus));
+      if(Number(m.requests)) parts.push("בקשות "+money(m.requests));
+      if(Number(m.takes)) parts.push("משיכות −"+money(Math.abs(m.takes)));
+    }
+    let n=(r.note?r.note+" · ":"")+"מהקופה"+(parts.length?": "+parts.join(", "):"");
+    if(ym===curYm() && base>r2(m&&m.total)) n+=" · עד עכשיו "+money(r2(m&&m.total))+" (מוצג הסכום הקבוע עד סוף החודש)";
+    return n;
+  }
+  // what should change: the rule's transaction in each month from the link month on.
+  // Past months get the real total; the current month never drops below the fixed amount.
+  // A transaction whose amount was changed by hand is left alone.
+  function plan(months){
+    const r=rule(); if(!r) return [];
+    const base=r2(r.amount), now=curYm(), out=[];
+    for(let ym=r.kupaFrom||now, i=0; ym<=now && i<36; ym=ymAdd(ym,1), i++){
+      const x=(state.manual||[]).find(t=>t&&t.recKey===r.id+"|"+ym); if(!x) continue;
+      const m=months[ym], total=r2(m&&m.total);
+      const want=ym<now?total:Math.max(base,total);
+      if(!(want>0)) continue;
+      const cur=r2(Math.abs(Number(x.amount))), auto=x.kupaAuto!=null?r2(x.kupaAuto):base;
+      if(Math.abs(cur-auto)>0.004) continue;
+      const note=noteFor(r,m,ym,base);
+      if(Math.abs(cur-want)<0.005 && x.note===note){ if(x.kupaAuto==null) x.kupaAuto=want; continue; }
+      out.push({x,want,note});
+    }
+    return out;
+  }
+  function tomb(sig){ state.manualDeleted=state.manualDeleted||{}; state.manualDeleted[sig]=Date.now(); }
+  function apply(list){
+    if(!list.length) return 0;
+    try{ if(typeof window.autoBackupBeforeImport==="function") window.autoBackupBeforeImport("before-kupa-sync"); }catch(e){}
+    list.forEach(({x,want,note})=>{
+      const old=txSig(x);
+      x.amount=x.type==="Expense"?-want:want; x.note=note; x.kupaAuto=want;
+      const nw=txSig(x); if(old!==nw) tomb(old);
+      if(state.manualDeleted) delete state.manualDeleted[nw];
+    });
+    save(); try{ render(); }catch(e){}
+    return list.length;
+  }
+
+  async function sync(manual){
+    if(busy || !ready() || !link()) return;
+    busy=true; lastErr="";
+    let c=null;
+    try{ c=await fetchMonths(); }
+    catch(e){ lastErr=e.message; c=cache(); }
+    finally{ busy=false; }
+    let n=0;
+    if(c && rule()) n=apply(plan(c.months));
+    if(manual){
+      if(lastErr==="badcode") flash("קוד החיבור לא תקף. צור קוד חדש בהגדרות הקופה.");
+      else if(lastErr==="missing") flash("צריך להריץ את budget-link.sql בפרויקט של הקופה.");
+      else if(lastErr) flash("אין חיבור לקופה כרגע");
+      else flash(n?"דמי הכיס עודכנו מהקופה":"דמי הכיס מעודכנים");
+    }
+    renderCard();
+  }
+
+  // ---------- settings card ----------
+  function ruleLabel(r){ return (r.category||"")+(r.note?" · "+r.note:"")+" · "+money(r.amount)+" ב־"+r.day+" לחודש"; }
+  function renderCard(){
+    const box=g("kpCardBody"); if(!box) return;
+    if(!ready()){ box.innerHTML='<div class="muted tiny">צריך להיות מחובר לענן כדי לחבר את הקופה.</div>'; return; }
+    const L=link();
+    if(!L){
+      let shared=null; try{ shared=parseCode(localStorage.getItem(SHARED_LS)); }catch(e){}
+      box.innerHTML='<div class="muted tiny">הקבועה של דמי הכיס תתעדכן כל חודש לסכום שנתת בפועל בקופה: דמי כיס, בונוסים ובקשות שאישרת, פחות משיכות. את הקוד יוצרים בקופה: הגדרות ← חיבור לאפליקציית התקציב.</div>'
+        +(shared?'<div class="row" style="margin-top:10px"><button class="secondary" id="kpAuto">חיבור לקופה של '+esc(shared.n||"")+' (נמצא בדפדפן הזה)</button></div>':'')
+        +'<textarea id="kpCode" rows="3" placeholder="הדבק כאן את קוד החיבור מהקופה (KUPA1:…)" style="width:100%;margin-top:10px;direction:ltr;font-size:12px;border-radius:10px;padding:8px"></textarea>'
+        +'<div class="row" style="margin-top:8px"><button class="secondary" id="kpSave">חיבור</button></div>';
+      const connect=code=>{ const o=parseCode(code); if(!o){ flash("זה לא נראה כמו קוד חיבור של הקופה"); return; } sett().kupaLink=String(code).trim(); save(); renderCard(); sync(true); };
+      g("kpSave").onclick=()=>connect(g("kpCode").value);
+      if(g("kpAuto")) g("kpAuto").onclick=()=>connect(localStorage.getItem(SHARED_LS));
+      return;
+    }
+    const rules=(state.recurring||[]).filter(r=>r&&r.id&&r.type==="Expense");
+    const cur=rule(), guess=cur||rules.find(r=>/דמי כיס/.test((r.category||"")+" "+(r.note||"")));
+    const c=cache(), m=c&&c.months[curYm()];
+    const err={badcode:"⚠️ קוד החיבור לא תקף. צור קוד חדש בהגדרות הקופה והדבק אותו מחדש.",missing:"⚠️ חסרה פונקציה בשרת של הקופה: צריך להריץ את budget-link.sql.",net:"⚠️ אין חיבור לקופה כרגע. מוצגים הנתונים האחרונים."}[lastErr]||"";
+    box.innerHTML='<div class="muted tiny">✓ מחובר לקופה של '+esc(L.n||"")+'.'+(c?' עודכן '+new Date(c.at).toLocaleString("he-IL",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"}):'')+'</div>'
+      +(err?'<div class="tiny" style="margin-top:6px;color:#c0392b">'+err+'</div>':'')
+      +(m?'<div style="margin-top:8px"><b>החודש בקופה: '+money(m.total)+'</b><div class="muted tiny">'+esc(noteFor({note:""},m,"",0).replace(/^מהקופה:? ?/,""))+'</div></div>':'')
+      +'<div class="muted tiny" style="margin-top:10px">איזו הוצאה קבועה היא דמי הכיס בקופה?</div>'
+      +'<select id="kpRule" style="width:100%;margin-top:4px"><option value="">— בחר —</option>'+rules.map(r=>'<option value="'+esc(r.id)+'"'+(guess&&guess.id===r.id?' selected':'')+'>'+esc(ruleLabel(r))+'</option>').join("")+'</select>'
+      +(cur?'<div class="muted tiny" style="margin-top:4px">🔗 משויך מ־'+esc((cur.kupaFrom||"").split("-").reverse().join("/"))+'. בחודש הנוכחי מוצג לפחות הסכום הקבוע; חודש שנגמר מקבל את הסכום הסופי מהקופה. סכום ששינית ידנית לא יידרס.</div>':'')
+      +'<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><button class="secondary" id="kpLink">'+(cur?'שמירת השיוך':'שיוך')+'</button><button class="secondary" id="kpNow">עדכון עכשיו</button><button class="secondary" id="kpOff">ניתוק</button></div>';
+    g("kpLink").onclick=()=>{
+      const id=g("kpRule").value, r=(state.recurring||[]).find(x=>x&&x.id===id);
+      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink&&x!==r){ delete x.kupaLink; delete x.kupaFrom; x.modAt=Date.now(); } });
+      if(r){ if(!r.kupaLink){ r.kupaLink=true; r.kupaFrom=curYm(); } r.modAt=Date.now(); }
+      save(); try{ render(); }catch(e){}
+      flash(r?"השיוך נשמר":"השיוך הוסר"); renderCard(); if(r) sync();
+    };
+    g("kpNow").onclick=()=>sync(true);
+    g("kpOff").onclick=()=>{
+      if(!confirm("לנתק את הקופה? הסכומים שכבר עודכנו יישארו, ומעכשיו הקבועה תחזור לסכום קבוע.")) return;
+      delete sett().kupaLink;
+      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink){ delete x.kupaLink; delete x.kupaFrom; x.modAt=Date.now(); } });
+      try{ localStorage.removeItem(CACHE_LS); }catch(e){}
+      save(); try{ render(); }catch(e){} renderCard();
+    };
+  }
+  function addCard(){
+    if(g("kpCard")) return;
+    const page=g("settingsPage"); if(!page) return;
+    const card=document.createElement("div"); card.className="card"; card.id="kpCard";
+    card.innerHTML='<b>🫙 הקופה (דמי כיס)</b><div id="kpCardBody" style="margin-top:8px"></div>';
+    const anchor=g("hzCard")||[...page.querySelectorAll(".card")].find(c=>c.textContent.includes("גיבוי ושחזור"));
+    if(anchor) anchor.after(card); else page.appendChild(card);
+    renderCard();
+  }
+
+  function boot(){
+    addCard();
+    let wasReady=false;
+    setInterval(()=>{ if(!g("kpCard")) addCard(); const r=ready(); if(r&&!wasReady){ renderCard(); setTimeout(sync,3000); } wasReady=r; },2000);
+    setInterval(()=>sync(),10*60*1000);
+    document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") setTimeout(()=>sync(),3500); });
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(boot,400));
+  else setTimeout(boot,400);
+  window.kupaSync=sync;
 })();
 </script>
 
