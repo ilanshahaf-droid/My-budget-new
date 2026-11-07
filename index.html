@@ -13551,7 +13551,10 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     return c;
   }
 
-  function noteFor(r,m,ym,base){
+  // the rule may include more than this child (e.g. other kids' pocket money):
+  // only the child's part (kupaPart, default ₪50) is replaced by the amount from the kupa
+  const partOf=r=>{ const v=r2(r.kupaPart!=null?r.kupaPart:Math.min(50,Number(r.amount)||0)); return Math.max(0,Math.min(v,r2(r.amount))); };
+  function noteFor(r,m,share){
     const parts=[];
     if(m){
       if(Number(m.allowance)) parts.push("דמי כיס "+money(m.allowance));
@@ -13559,24 +13562,27 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       if(Number(m.bonus)) parts.push("בונוס "+money(m.bonus));
       if(Number(m.requests)) parts.push("בקשות "+money(m.requests));
     }
-    let n=(r.note?r.note+" · ":"")+"מהקופה"+(parts.length?": "+parts.join(" + "):"");
-    if(m&&Number(m.takes)) n+=" − משיכות "+money(Math.abs(m.takes));
-    return n;
+    let d=parts.join(" + ");
+    if(m&&Number(m.takes)) d+=(d?" ":"")+"− משיכות "+money(Math.abs(m.takes));
+    if(d && share>r2(m&&m.total)+0.004) d="עד עכשיו: "+d;
+    const who=(link()&&link().n)||"מהקופה";
+    return (r.note?r.note+" · ":"")+who+" "+money(share)+(d?" ("+d+")":"");
   }
   // what should change: the rule's transaction in each month from the link month on.
-  // Past months get the real total; the current month never drops below the fixed amount.
+  // amount = the rest of the rule + the child's real total (current month: at least the planned part).
   // A transaction whose amount was changed by hand is left alone.
   function plan(months){
     const r=rule(); if(!r) return [];
-    const base=r2(r.amount), now=curYm(), out=[];
+    const base=r2(r.amount), part=partOf(r), rest=r2(base-part), now=curYm(), out=[];
     for(let ym=r.kupaFrom||now, i=0; ym<=now && i<36; ym=ymAdd(ym,1), i++){
       const x=(state.manual||[]).find(t=>t&&t.recKey===r.id+"|"+ym); if(!x) continue;
       const m=months[ym], total=r2(m&&m.total);
-      const want=ym<now?total:Math.max(base,total);
+      const share=ym<now?Math.max(0,total):Math.max(part,total);
+      const want=r2(rest+share);
       if(!(want>0)) continue;
       const cur=r2(Math.abs(Number(x.amount))), auto=x.kupaAuto!=null?r2(x.kupaAuto):base;
       if(Math.abs(cur-auto)>0.004) continue;
-      const note=noteFor(r,m,ym,base);
+      const note=noteFor(r,m,share);
       if(Math.abs(cur-want)<0.005 && x.note===note){ if(x.kupaAuto==null) x.kupaAuto=want; continue; }
       out.push({x,want,note});
     }
@@ -13637,15 +13643,23 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     const err={badcode:"⚠️ קוד החיבור לא תקף. צור קוד חדש בהגדרות הקופה והדבק אותו מחדש.",missing:"⚠️ חסרה פונקציה בשרת של הקופה: צריך להריץ את budget-link.sql.",net:"⚠️ אין חיבור לקופה כרגע. מוצגים הנתונים האחרונים."}[lastErr]||"";
     box.innerHTML='<div class="muted tiny">✓ מחובר לקופה של '+esc(L.n||"")+'.'+(c?' עודכן '+new Date(c.at).toLocaleString("he-IL",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"}):'')+'</div>'
       +(err?'<div class="tiny" style="margin-top:6px;color:#c0392b">'+err+'</div>':'')
-      +(m?'<div style="margin-top:8px"><b>החודש בקופה: '+money(m.total)+'</b><div class="muted tiny">'+esc(noteFor({note:""},m,"",0).replace(/^מהקופה:? ?/,""))+'</div></div>':'')
+      +(m?'<div style="margin-top:8px"><b>החודש בקופה: '+money(m.total)+'</b><div class="muted tiny">'+esc((noteFor({note:""},m,m.total).match(/\((.*)\)$/)||["",""])[1])+'</div></div>':'')
       +'<div class="muted tiny" style="margin-top:10px">איזו הוצאה קבועה היא דמי הכיס בקופה?</div>'
       +'<select id="kpRule" style="width:100%;margin-top:4px"><option value="">— בחר —</option>'+rules.map(r=>'<option value="'+esc(r.id)+'"'+(guess&&guess.id===r.id?' selected':'')+'>'+esc(ruleLabel(r))+'</option>').join("")+'</select>'
+      +'<div class="muted tiny" style="margin-top:10px">כמה מתוך הקבועה הם דמי הכיס של '+esc(L.n||"")+'? השאר (למשל של ילדים אחרים) נשאר קבוע.</div>'
+      +'<input id="kpPart" type="number" inputmode="decimal" min="0" step="1" value="'+(cur?partOf(cur):50)+'" style="width:120px;margin-top:4px;direction:ltr">'
+      +(cur?'<div class="muted tiny" style="margin-top:4px">'+esc(money(r2(cur.amount-partOf(cur))))+' קבוע + '+esc(L.n||"")+' לפי הקופה (בחודש הנוכחי לפחות '+esc(money(partOf(cur)))+').</div>':'')
       +(cur?'<div class="muted tiny" style="margin-top:4px">🔗 משויך מ־'+esc((cur.kupaFrom||"").split("-").reverse().join("/"))+'. בחודש הנוכחי מוצג לפחות הסכום הקבוע; חודש שנגמר מקבל את הסכום הסופי מהקופה. סכום ששינית ידנית לא יידרס.</div>':'')
       +'<div class="row" style="flex-wrap:wrap;gap:8px;margin-top:10px"><button class="secondary" id="kpLink">'+(cur?'שמירת השיוך':'שיוך')+'</button><button class="secondary" id="kpNow">עדכון עכשיו</button><button class="secondary" id="kpOff">ניתוק</button></div>';
     g("kpLink").onclick=()=>{
       const id=g("kpRule").value, r=(state.recurring||[]).find(x=>x&&x.id===id);
-      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink&&x!==r){ delete x.kupaLink; delete x.kupaFrom; x.modAt=Date.now(); } });
-      if(r){ if(!r.kupaLink){ r.kupaLink=true; r.kupaFrom=curYm(); } r.modAt=Date.now(); }
+      let pv=0;
+      if(r){
+        pv=r2(g("kpPart").value);
+        if(!(pv>=0) || pv>r2(r.amount)){ flash("החלק של "+((link()&&link().n)||"הילדה")+" צריך להיות בין 0 ל־"+money(r.amount)); return; }
+      }
+      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink&&x!==r){ delete x.kupaLink; delete x.kupaFrom; delete x.kupaPart; x.modAt=Date.now(); } });
+      if(r){ if(!r.kupaLink){ r.kupaLink=true; r.kupaFrom=curYm(); } r.kupaPart=pv; r.modAt=Date.now(); }
       save(); try{ render(); }catch(e){}
       flash(r?"השיוך נשמר":"השיוך הוסר"); renderCard(); if(r) sync();
     };
@@ -13653,7 +13667,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     g("kpOff").onclick=()=>{
       if(!confirm("לנתק את הקופה? הסכומים שכבר עודכנו יישארו, ומעכשיו הקבועה תחזור לסכום קבוע.")) return;
       delete sett().kupaLink;
-      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink){ delete x.kupaLink; delete x.kupaFrom; x.modAt=Date.now(); } });
+      (state.recurring||[]).forEach(x=>{ if(x&&x.kupaLink){ delete x.kupaLink; delete x.kupaFrom; delete x.kupaPart; x.modAt=Date.now(); } });
       try{ localStorage.removeItem(CACHE_LS); }catch(e){}
       save(); try{ render(); }catch(e){} renderCard();
     };
