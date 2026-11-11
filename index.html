@@ -1691,6 +1691,11 @@ body{
 
 </style>
 
+<script>
+/* Home-screen shortcut (?add=expense): paint the splash colour immediately so the main screen never flashes before the quick-add sheet. */
+(function(){try{if(new URL(location.href).searchParams.get("add")==="expense"){document.documentElement.classList.add("qa-direct");setTimeout(function(){document.documentElement.classList.remove("qa-direct")},9000)}}catch(e){}})();
+</script>
+<style>html.qa-direct,html.qa-direct body{background:#5b4b8a!important}html.qa-direct body>*:not(.qa-keep){visibility:hidden!important}html.qa-direct #qaBack{background:#5b4b8a!important}</style>
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#5b4b8a">
 <meta name="app-version" content="V4.2 Stable">
@@ -7828,7 +7833,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  #qaSheet .qa-row input{flex:1;min-width:0;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:12px;background:transparent;color:var(--text)}
  #qaToast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(170px + env(safe-area-inset-bottom,0px));background:#202431;color:#fff;padding:10px 16px;border-radius:12px;z-index:10001;display:none;font-weight:700}`;
  const st=document.createElement("style"); st.textContent=css; document.head.appendChild(st);
- const root=document.createElement("div");
+ const root=document.createElement("div"); root.className="qa-keep";
  root.innerHTML=`<button id="qaFab" type="button" aria-label="הוסף הוצאה">+</button>
  <div id="qaBack"><div id="qaSheet"><div id="qaTop">
   <div id="qaTitle" style="display:none;font-weight:900;font-size:18px;margin-bottom:8px"></div>
@@ -8069,7 +8074,7 @@ $("kibbutzInvoiceFile").onchange=async e=>{
    if(state.amountOverrides) delete state.amountOverrides[sk];
    afterEdit("התנועה נמחקה");
  }
- function closeSheet(){q("qaBack").classList.remove("open"); edit=null; editCat=""}
+ function closeSheet(){q("qaBack").classList.remove("open"); edit=null; editCat=""; document.documentElement.classList.remove("qa-direct")}
  function commit(more){
    if(edit){commitEdit();return}
    const a=Number(q("qaAmt").value);
@@ -8238,6 +8243,8 @@ $("kibbutzInvoiceFile").onchange=async e=>{
  };
  root.querySelectorAll(".qa-seg button").forEach(b=>b.onclick=()=>{type=b.dataset.t;cat="";root.querySelectorAll(".qa-seg button").forEach(x=>x.classList.toggle("on",x===b));drawCats()});
 })();
+/* shortcut: open the quick-add sheet as soon as it exists (before the main screen is rendered) */
+try{ if(document.documentElement.classList.contains("qa-direct")){ var __fb=document.getElementById("qaFab"); if(__fb&&typeof __fb.onclick==="function"){ __fb.onclick(); window.__qaDirectOpened=true; } } }catch(e){ console.warn("qa direct",e); }
 
 $("backupFile").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{
  let restored=JSON.parse(r.result);
@@ -13697,19 +13704,27 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 
 
 <script id="quick-add-shortcut">
-// Home-screen icon shortcut (long-press → "הוספת הוצאה") opens the app at ?add=expense:
-// open the quick-add sheet right away and clean the parameter from the address bar.
+// Shortcut "הוספת הוצאה" (?add=expense). The sheet is normally already open (early path above);
+// here we clean the URL, refresh the category list once the app finished loading, and fall back to a poll if the early path failed.
 (function(){
   try{
     var u=new URL(location.href);
     if(u.searchParams.get("add")!=="expense") return;
     u.searchParams.delete("add");
     history.replaceState(null,"",u.pathname+(u.search||"")+u.hash);
+    function isOpen(){ var b=document.getElementById("qaBack"); return !!(b&&b.classList.contains("open")); }
+    function refresh(){
+      var amt=document.getElementById("qaAmt");
+      if(isOpen()&&amt&&!amt.value&&!document.querySelector("#qaCats .qc.on")){
+        var eb=document.querySelector('#qaSheet .qa-seg button[data-t="Expense"]'); if(eb) eb.click();
+      }
+    }
+    if(window.__qaDirectOpened&&isOpen()){ refresh(); setTimeout(refresh,1500); return; }
     var tries=0, t=setInterval(function(){
-      var b=document.getElementById("qaFab");
-      if(b&&typeof b.onclick==="function"){ clearInterval(t); setTimeout(function(){ b.click(); },350); }
+      var f=document.getElementById("qaFab");
+      if(f&&typeof f.onclick==="function"){ clearInterval(t); f.click(); }
       else if(++tries>60) clearInterval(t);
-    },150);
+    },100);
   }catch(e){}
 })();
 </script>
