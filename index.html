@@ -13695,4 +13695,22 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
 })();
 </script>
 
+
+<script id="quick-add-shortcut">
+// Home-screen icon shortcut (long-press → "הוספת הוצאה") opens the app at ?add=expense:
+// open the quick-add sheet right away and clean the parameter from the address bar.
+(function(){
+  try{
+    var u=new URL(location.href);
+    if(u.searchParams.get("add")!=="expense") return;
+    u.searchParams.delete("add");
+    history.replaceState(null,"",u.pathname+(u.search||"")+u.hash);
+    var tries=0, t=setInterval(function(){
+      var b=document.getElementById("qaFab");
+      if(b&&typeof b.onclick==="function"){ clearInterval(t); setTimeout(function(){ b.click(); },350); }
+      else if(++tries>60) clearInterval(t);
+    },150);
+  }catch(e){}
+})();
+</script>
 </body></html>
