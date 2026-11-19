@@ -3261,7 +3261,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 
  <div class="card" id="kibbutzImportCard">
    <b>ייבוא הוצאות קיבוץ</b>
-   <div class="muted tiny" style="margin:6px 0 10px">נוסף לתנועות הקיימות, לא מוחק נתוני Spendee</div>
+   <div class="muted tiny" style="margin:6px 0 10px">נוסף לתנועות הקיימות, לא מוחק תנועות קיימות</div>
    <label class="filebtn">ייבוא CSV הוצאות קיבוץ
      <input id="kibbutzCsvFile" type="file" accept=".csv,text/csv">
    </label>
@@ -3273,7 +3273,7 @@ completion is excluded from all analytical totals, preventing double-counting.
  </div>
 <div class="card" id="creditAuditCard">
    <b>💳 בקרת כרטיסי אשראי</b>
-   <div class="muted tiny" style="margin:6px 0 10px">בקרה מול Spendee והוצאות ידניות — ללא הוספת הוצאות אוטומטית</div>
+   <div class="muted tiny" style="margin:6px 0 10px">בקרה מול ההוצאות שדווחו באפליקציה — ללא הוספת הוצאות אוטומטית</div>
    <div class="credit-wizard" id="creditWizard">
      <b style="font-size:13px">אשף חודשי מקוצר</b>
      <div class="muted tiny" style="margin-top:4px">1) טען קובץ → 2) התאמות אוטומטיות → 3) אשר רק חריגים</div>
@@ -5133,16 +5133,16 @@ function reopenCreditAuditRow(idx){const r=state.creditCardAudit?.rows?.[idx];if
 function creditAuditCard(r,idx){
  const resolved=["matched","manual-reported","ignored"].includes(r.status);
  const possible=(r.possibleMatches?.length?r.possibleMatches:auditCandidatesForRow(r,5)).slice(0,8);
- let matchHtml=r.match?`<div class="audit-match"><b>✓ התאמה ב־Spendee</b>${auditCandidateLabel(r.match)}</div>`:"";
+ let matchHtml=r.match?`<div class="audit-match"><b>✓ התאמה באפליקציה</b>${auditCandidateLabel(r.match)}</div>`:"";
  let choices="";
- if(!resolved&&possible.length){choices=`<div class="audit-actions"><select onchange="if(this.value)setCreditAuditMatch(${idx},this.value)"><option value="">בחר התאמה אפשרית ב־Spendee…</option>${possible.map(tx=>`<option value="${escapeHtml(txKey(tx))}">${auditCandidateLabel(tx)}</option>`).join("")}</select></div>`}
- const reason=r.status==="ambiguous"?"נמצאו כמה התאמות אפשריות. בחר את העסקה הנכונה.":r.status==="unmatched"?"לא נמצאה התאמה ודאית ב־Spendee.":r.status==="manual-reported"?"סומן ידנית כעסקה שכבר דווחה ב־Spendee.":r.status==="ignored"?"סומן כעסקה שאינה שלך / אינה חלק מהבקרה.":"נמצאה התאמה ל־Spendee.";
+ if(!resolved&&possible.length){choices=`<div class="audit-actions"><select onchange="if(this.value)setCreditAuditMatch(${idx},this.value)"><option value="">בחר התאמה אפשרית באפליקציה…</option>${possible.map(tx=>`<option value="${escapeHtml(txKey(tx))}">${auditCandidateLabel(tx)}</option>`).join("")}</select></div>`}
+ const reason=r.status==="ambiguous"?"נמצאו כמה התאמות אפשריות. בחר את העסקה הנכונה.":r.status==="unmatched"?"לא נמצאה התאמה ודאית באפליקציה.":r.status==="manual-reported"?"סומן ידנית כעסקה שכבר דווחה באפליקציה.":r.status==="ignored"?"סומן כעסקה שאינה שלך / אינה חלק מהבקרה.":"נמצאה התאמה באפליקציה.";
  return `<div class="credit-audit-question ${r.status==="ambiguous"?"credit-audit-ambiguous":""} ${resolved?"audit-resolved":""} ${r.status==="ignored"?"audit-ignored":""}">
  <div class="merchant">${escapeHtml(r.displayMerchant||"עסקת אשראי")}</div><div class="meta">${r.date} · ${fmt(r.amount)}</div>
  ${r.learnedRule?'<span class="learned-badge">🧠 סיווג שנלמד</span>':""}${creditAuditExtraDetails(r)}${matchHtml}
  <div class="audit-category"><b>סיווג לבקרה:</b><select onchange="setCreditAuditCategory(${idx},this.value,true)">${auditCategoryOptions(r.auditCategory)}</select></div>
  ${choices}<div class="reason">${reason}</div>
- <div class="audit-actions">${!resolved?`<button type="button" onclick="markCreditAuditReported(${idx})">✓ דווח ב־Spendee</button><button class="secondary" type="button" onclick="ignoreCreditAuditRow(${idx})">לא שלי / להתעלם</button>`:`<button class="secondary" type="button" onclick="reopenCreditAuditRow(${idx})">↩ פתח לבדיקה מחדש</button>`}</div></div>`;
+ <div class="audit-actions">${!resolved?`<button type="button" onclick="markCreditAuditReported(${idx})">✓ דווח באפליקציה</button><button class="secondary" type="button" onclick="ignoreCreditAuditRow(${idx})">לא שלי / להתעלם</button>`:`<button class="secondary" type="button" onclick="reopenCreditAuditRow(${idx})">↩ פתח לבדיקה מחדש</button>`}</div></div>`;
 }
 function renderCreditAudit(){
  const data=state.creditCardAudit,box=$("creditAuditSummary");if(!box)return;
@@ -5157,7 +5157,7 @@ function renderCreditAudit(){
  (resolved.length?`<details class="audit-resolved-list"><summary><b>עסקאות שטופלו (${resolved.length})</b></summary>${resolved.map(x=>creditAuditCard(x.r,x.i)).join("")}</details>`:"");
 }
 function clearCreditAudit(){
- if(!confirm("למחוק את נתוני בקרת האשראי? נתוני Spendee לא יושפעו."))return;
+ if(!confirm("למחוק את נתוני בקרת האשראי? התנועות באפליקציה לא יושפעו."))return;
  state.creditCardAudit=null;save();renderCreditAudit();
 }
 function mapKibbutzImportCategory(c){
@@ -6269,7 +6269,7 @@ function addExpectedExpense(){
  if(dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))return alert("תאריך לא תקין");
  let month=dueDate?dueDate.slice(0,7):selectedMonth;
 
- let keyword=prompt("מילת זיהוי ב־Spendee לצורך התאמה אוטומטית (למשל 'מנורה' או 'ביטוח'). אפשר להשאיר ריק.",name.split(/\s+/)[0]||"")||"";
+ let keyword=prompt("מילת זיהוי בתנועות לצורך התאמה אוטומטית (למשל 'מנורה' או 'ביטוח'). אפשר להשאיר ריק.",name.split(/\s+/)[0]||"")||"";
 
  state.expectedExpenses.push({
    id:Date.now()+"-"+Math.random().toString(36).slice(2),
@@ -6351,7 +6351,7 @@ function rc473RegularExpectedRow(e){
      <div class="tiny muted">${e.dueDate||e.month} · ${classLabel(e.class)}${e.keyword?` · זיהוי: ${e.keyword}`:""}${kibbutzExpectedMetaText(e)}${augustKibbutzExpectedMetaText(e)}</div>
    </div>
    <b>${fmt(e.amount)}</b>
-   <span class="pill">${e.paid?(e.matchedTxKey?"✓ זוהה ב-Spendee":"✓ שולם"):"טרם שולם"}</span>
+   <span class="pill">${e.paid?(e.matchedTxKey?"✓ זוהה באפליקציה":"✓ שולם"):"טרם שולם"}</span>
    <span><button class="secondary tx-action" onclick="toggleExpected('${e.id}')">${e.paid?"החזר לצפוי":"סמן שולם"}</button> <button class="danger tx-action" onclick="deleteExpected('${e.id}')">מחק</button></span>
  </div>`;
 }
@@ -6374,7 +6374,7 @@ function editExpected(id){
  let amount=Number(prompt("סכום צפוי",String(e.amount))); if(!amount||amount<0)return alert("סכום לא תקין");
  let dueDate=prompt("תאריך צפוי YYYY-MM-DD (אפשר ריק)",e.dueDate||`${e.month}-25`)||"";
  if(dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))return alert("תאריך לא תקין");
-  let keyword=prompt("מילת זיהוי ב־Spendee",e.keyword||"")||"";
+  let keyword=prompt("מילת זיהוי בתנועות",e.keyword||"")||"";
  Object.assign(e,{name,amount,dueDate,month:dueDate?dueDate.slice(0,7):e.month,class:"periodic",keyword:autoNorm(keyword)});
  save(); renderExpectedExpenses(); renderExpectedDashboard(); rc47RenderHistoryLearning(); render();
 }
@@ -7193,7 +7193,7 @@ function render(){
  $("riskCats").innerHTML = risk.length
    ? `<b>קטגוריות שעלולות לחרוג:</b> ` + risk.sort((a,b)=>b.over-a.over).slice(0,5).map(r=>`${r.c} (+${fmt(r.over)})`).join(" · ")
    : `<span class="muted">אין כרגע קטגוריה משתנה עם תחזית חריגה משמעותית.</span>`;
- if($("pendingInfo")) $("pendingInfo").innerHTML = `השיוך לחודש נקבע לפי התאריך שמופיע ב-Spendee.`;
+ if($("pendingInfo")) $("pendingInfo").innerHTML = `השיוך לחודש נקבע לפי תאריך התנועה.`;
 
  // Removed at Ilan's request: the old "budget is on a reasonable track" status box was outdated and unhelpful.
  if($("alert")) $("alert").innerHTML="";
@@ -7739,7 +7739,7 @@ function renderKibbutzInvoicePreview(inv){
    const k=kibRuleKey(it.desc), sel=rules[k]||"";
    return `<div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(128,128,128,.25)">
      <div><b>${kibEsc(it.desc)}</b><div class="muted tiny">₪${it.total.toFixed(2)}</div></div>
-     <select data-kib="${i}" style="min-width:150px"><option value="">בחר קטגוריה…</option><option value="__skip__"${sel==="__skip__"?" selected":""}>⛔ לא לספור (מדווח בספנדי)</option>${cats.map(c=>`<option value="${kibEsc(c)}"${c===sel?" selected":""}>${kibEsc(c)}</option>`).join("")}</select>
+     <select data-kib="${i}" style="min-width:150px"><option value="">בחר קטגוריה…</option><option value="__skip__"${sel==="__skip__"?" selected":""}>⛔ לא לספור (מדווח באפליקציה)</option>${cats.map(c=>`<option value="${kibEsc(c)}"${c===sel?" selected":""}>${kibEsc(c)}</option>`).join("")}</select>
    </div>`;
  }).join("");
  $("kibbutzInvoicePreview").innerHTML=`<div style="margin-top:10px"><b>חשבונית מתאריך ${inv.iso.split("-").reverse().join("/")}</b> · ${inv.items.length} שורות · ₪${sum.toFixed(2)}</div>${warn}${rowsHtml}
@@ -7793,7 +7793,7 @@ function applyKibbutzInvoice(){
  save(); buildMonths(); render();
  _kibInv=null;
  const st=$("kibbutzImportStatus");
- if(st) st.textContent=`ייבוא חשבונית הושלם: ${imported.length} תנועות נוספו בסך ₪${total.toFixed(2)}`+(skipped?`, ${skipped} כבר היו קיימות`:"")+(excluded?`, ${excluded} שורות לא נספרו (מדווחות בספנדי)`:"");
+ if(st) st.textContent=`ייבוא חשבונית הושלם: ${imported.length} תנועות נוספו בסך ₪${total.toFixed(2)}`+(skipped?`, ${skipped} כבר היו קיימות`:"")+(excluded?`, ${excluded} שורות לא נספרו (מדווחות באפליקציה)`:"");
 }
 $("kibbutzInvoiceFile").onchange=async e=>{
  const f=e.target.files[0]; if(!f) return;
@@ -10011,14 +10011,14 @@ if ("serviceWorker" in navigator) {
   window.creditCandidateRowsHtml=function(idx,query=""){
     const row=state.creditCardAudit?.rows?.[idx];if(!row)return "";
     const arr=creditManualCandidates(idx,query);
-    if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות Spendee מתאימות לחיפוש.</div>';
+    if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות מתאימות לחיפוש.</div>';
     return arr.map(tx=>{
       const gap=expenseAmount(tx)-row.amount;
       const encoded=encodeURIComponent(txKey(tx));
       return `<div class="credit-candidate">
         <div class="candidate-main">
           <div class="candidate-title">${escapeHtml(tx.note||tx.category||"ללא תיאור")}</div>
-          <div class="candidate-meta">${(tx.date||"").slice(0,10)} · Spendee ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
+          <div class="candidate-meta">${(tx.date||"").slice(0,10)} · באפליקציה ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
           <div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div>
         </div>
         <button type="button" onclick="chooseCreditCandidate(${idx},'${encoded}')">בחר</button>
@@ -10090,18 +10090,18 @@ if ("serviceWorker" in navigator) {
     let actions="";
     if(!zero && !r.amountDecision){
       actions=`<div class="audit-decision">
-        <button class="secondary" type="button" onclick="keepSpendeeAmount(${idx})">השאר Spendee (${fmt(sp)})</button>
+        <button class="secondary" type="button" onclick="keepSpendeeAmount(${idx})">השאר את הסכום באפליקציה (${fmt(sp)})</button>
         <button type="button" onclick="replaceWithCreditAmount(${idx})">החלף בסכום האשראי (${fmt(cc)})</button>
       </div>`;
     }else if(corrected){
       actions=`<span class="audit-corrected-badge">✓ הסכום בתקציב תוקן ל־${fmt(corrected.correctedAmount)}</span>
-        <div class="audit-decision"><button class="secondary" type="button" onclick="undoCreditAmountCorrection(${idx})">↩ בטל תיקון וחזור ל־Spendee</button></div>`;
+        <div class="audit-decision"><button class="secondary" type="button" onclick="undoCreditAmountCorrection(${idx})">↩ בטל תיקון וחזור לסכום באפליקציה</button></div>`;
     }else if(r.amountDecision==="keep"){
-      actions='<span class="audit-corrected-badge" style="background:#eef0f8;color:#4b3d78">נשמר סכום Spendee</span>';
+      actions='<span class="audit-corrected-badge" style="background:#eef0f8;color:#4b3d78">נשמר הסכום באפליקציה</span>';
     }
     return `<div class="audit-comparison">
       <div class="audit-comparison-grid">
-        <div class="audit-comparison-box"><small>Spendee</small><b>${fmt(sp)}</b></div>
+        <div class="audit-comparison-box"><small>באפליקציה</small><b>${fmt(sp)}</b></div>
         <div class="audit-comparison-box"><small>כרטיס אשראי</small><b>${fmt(cc)}</b></div>
         <div class="audit-diff ${zero?"zero":""}">פער ${diff>=0?"+":""}${fmt(diff)}</div>
       </div>${actions}
@@ -10113,22 +10113,22 @@ if ("serviceWorker" in navigator) {
     const resolved=["matched","matched-corrected","manual-reported","ignored"].includes(r.status) &&
       r.status!=="matched-review";
     const possible=(r.possibleMatches?.length?r.possibleMatches:auditCandidatesForRow(r,5)).slice(0,8);
-    let matchHtml=r.match?`<div class="audit-match"><b>התאמה שנבחרה ב־Spendee</b>${auditCandidateLabel(r.match)}
+    let matchHtml=r.match?`<div class="audit-match"><b>התאמה שנבחרה באפליקציה</b>${auditCandidateLabel(r.match)}
       <div class="match-amount-note">${escapeHtml(r.match.category||"")}</div></div>`:"";
     let choices="";
     if(!resolved&&possible.length){
       choices=`<div class="audit-actions"><select onchange="if(this.value)setCreditAuditMatch(${idx},this.value)">
-        <option value="">בחר התאמה מוצעת ב־Spendee…</option>
+        <option value="">בחר התאמה מוצעת באפליקציה…</option>
         ${possible.map(tx=>`<option value="${escapeHtml(txKey(tx))}">${auditCandidateLabel(tx)}</option>`).join("")}
       </select></div>`;
     }
     const reason=r.status==="ambiguous"?"נמצאו כמה התאמות אפשריות."
-      :r.status==="unmatched"?"לא נמצאה התאמה ודאית. אפשר לחפש ידנית בכל דיווחי Spendee."
+      :r.status==="unmatched"?"לא נמצאה התאמה ודאית. אפשר לחפש ידנית בכל התנועות באפליקציה."
       :r.status==="matched-review"?"נמצאה עסקה קרובה, אך הסכומים שונים. אשר איזה סכום ישמש בתקציב."
-      :r.status==="manual-reported"?"סומן ידנית כעסקה שכבר דווחה ב־Spendee."
+      :r.status==="manual-reported"?"סומן ידנית כעסקה שכבר דווחה באפליקציה."
       :r.status==="ignored"?"סומן כעסקה שאינה שלך / אינה חלק מהבקרה."
       :r.status==="matched-corrected"?"העסקה הותאמה וסכום התקציב תוקן לפי האשראי."
-      :"נמצאה התאמה ל־Spendee.";
+      :"נמצאה התאמה באפליקציה.";
 
     return `<div class="credit-audit-question ${r.status==="ambiguous"?"credit-audit-ambiguous":""} ${resolved?"audit-resolved":""} ${r.status==="ignored"?"audit-ignored":""}">
       <div class="merchant">${escapeHtml(r.displayMerchant||"עסקת אשראי")}</div>
@@ -10139,9 +10139,9 @@ if ("serviceWorker" in navigator) {
         <select onchange="setCreditAuditCategory(${idx},this.value,true)">${auditCategoryOptions(r.auditCategory)}</select>
       </div>
       ${choices}
-      <button class="secondary audit-search-button" type="button" onclick="toggleCreditFinder(${idx})">🔎 מצא עסקה תואמת בדיווחי Spendee</button>
+      <button class="secondary audit-search-button" type="button" onclick="toggleCreditFinder(${idx})">🔎 מצא עסקה תואמת בדיווחים באפליקציה</button>
       <div id="creditFinder_${idx}" class="credit-finder hidden">
-        <input type="search" placeholder="חפש לפי שם/קטגוריה ב־Spendee…" oninput="filterCreditFinder(${idx},this.value)">
+        <input type="search" placeholder="חפש לפי שם/קטגוריה באפליקציה…" oninput="filterCreditFinder(${idx},this.value)">
         <div id="creditFinderResults_${idx}" class="credit-finder-results"></div>
       </div>
       <div class="reason">${reason}</div>
@@ -10379,7 +10379,7 @@ creditManualCandidates=(idx,q="",allMode=false)=>pool(idx,q,allMode).map(x=>x.tx
 creditCandidateRowsHtml=function(idx,q="",allMode=false){
  const row=state.creditCardAudit?.rows?.[idx];if(!row)return"";const arr=pool(idx,q,allMode);
  if(!arr.length)return'<div class="muted tiny">לא נמצאו עסקאות. אפשר לבחור „כל העסקאות”.</div>';
- return arr.map(({tx,related})=>{const gap=expenseAmount(tx)-row.amount,enc=encodeURIComponent(txKey(tx));return `<div class="credit-candidate ${related?"related":""}"><div class="candidate-main"><div class="candidate-title">${escapeHtml(tx.note||tx.category||"ללא תיאור")}</div><div class="candidate-meta">${(tx.date||"").slice(0,10)} · Spendee ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>${related?`<span class="credit-related-badge">קשור לסיווג ${escapeHtml(row.auditCategory||"")}</span>`:""}<div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div></div><button type="button" onclick="chooseCreditCandidate(${idx},'${enc}')">בחר</button></div>`}).join("");
+ return arr.map(({tx,related})=>{const gap=expenseAmount(tx)-row.amount,enc=encodeURIComponent(txKey(tx));return `<div class="credit-candidate ${related?"related":""}"><div class="candidate-main"><div class="candidate-title">${escapeHtml(tx.note||tx.category||"ללא תיאור")}</div><div class="candidate-meta">${(tx.date||"").slice(0,10)} · באפליקציה ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>${related?`<span class="credit-related-badge">קשור לסיווג ${escapeHtml(row.auditCategory||"")}</span>`:""}<div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div></div><button type="button" onclick="chooseCreditCandidate(${idx},'${enc}')">בחר</button></div>`}).join("");
 };
 toggleCreditFinder=function(idx){const el=$(`creditFinder_${idx}`);if(!el)return;el.classList.toggle("hidden");if(!el.classList.contains("hidden")){const b=$(`creditFinderResults_${idx}`);if(b)b.innerHTML=creditCandidateRowsHtml(idx,"",false)}};
 filterCreditFinder=function(idx,v){const b=$(`creditFinderResults_${idx}`);if(b)b.innerHTML=creditCandidateRowsHtml(idx,v,false)};
@@ -10387,9 +10387,9 @@ window.showAllCreditCandidates=idx=>{const b=$(`creditFinderResults_${idx}`);if(
 window.showCategoryCreditCandidates=idx=>{const b=$(`creditFinderResults_${idx}`);if(b)b.innerHTML=creditCandidateRowsHtml(idx,"",false)};
 const prevCat=setCreditAuditCategory;setCreditAuditCategory=function(idx,cat,learn=true){prevCat(idx,cat,learn);const f=$(`creditFinder_${idx}`);if(f&&!f.classList.contains("hidden")){const b=$(`creditFinderResults_${idx}`);if(b)b.innerHTML=creditCandidateRowsHtml(idx,"",false)}};
 const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,idx),needle=`<div id="creditFinder_${idx}" class="credit-finder hidden">
-        <input type="search" placeholder="חפש לפי שם/קטגוריה ב־Spendee…" oninput="filterCreditFinder(${idx},this.value)">
+        <input type="search" placeholder="חפש לפי שם/קטגוריה באפליקציה…" oninput="filterCreditFinder(${idx},this.value)">
         <div id="creditFinderResults_${idx}" class="credit-finder-results"></div>
-      </div>`,rep=`<div id="creditFinder_${idx}" class="credit-finder hidden"><div class="credit-finder-hint">${r.auditCategory?`מציג קודם את כל עסקאות Spendee הקשורות ל־<b>${escapeHtml(r.auditCategory)}</b>, גם עם פער בתאריך או בסכום.`:"בחר סיווג כדי למקד את החיפוש."}</div><div class="credit-finder-mode"><button class="secondary" type="button" onclick="showCategoryCreditCandidates(${idx})">לפי הסיווג</button><button class="secondary" type="button" onclick="showAllCreditCandidates(${idx})">כל העסקאות</button></div><input type="search" placeholder="חיפוש חופשי בשם/קטגוריה ב־Spendee…" oninput="filterCreditFinder(${idx},this.value)"><div id="creditFinderResults_${idx}" class="credit-finder-results"></div></div>`;return h.replace(needle,rep)};
+      </div>`,rep=`<div id="creditFinder_${idx}" class="credit-finder hidden"><div class="credit-finder-hint">${r.auditCategory?`מציג קודם את כל העסקאות באפליקציה הקשורות ל־<b>${escapeHtml(r.auditCategory)}</b>, גם עם פער בתאריך או בסכום.`:"בחר סיווג כדי למקד את החיפוש."}</div><div class="credit-finder-mode"><button class="secondary" type="button" onclick="showCategoryCreditCandidates(${idx})">לפי הסיווג</button><button class="secondary" type="button" onclick="showAllCreditCandidates(${idx})">כל העסקאות</button></div><input type="search" placeholder="חיפוש חופשי בשם/קטגוריה באפליקציה…" oninput="filterCreditFinder(${idx},this.value)"><div id="creditFinderResults_${idx}" class="credit-finder-results"></div></div>`;return h.replace(needle,rep)};
 })();
 </script>
 
@@ -10450,7 +10450,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
    const row=state.creditCardAudit?.rows?.[idx];if(!row)return "";
    try{
      const arr=alpha13Pool(idx,q,allMode);
-     if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות Spendee. נסה „כל העסקאות” או חיפוש חופשי.</div>';
+     if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות באפליקציה. נסה „כל העסקאות” או חיפוש חופשי.</div>';
      return `<div class="muted tiny" style="margin-bottom:6px">נמצאו ${arr.length} עסקאות להצגה</div>`+
        arr.map(({tx,related})=>{
          const gap=expenseAmount(tx)-Number(row.amount||0);
@@ -10458,7 +10458,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
          return `<div class="credit-candidate ${related?"related":""}">
            <div class="candidate-main">
              <div class="candidate-title">${escapeHtml(tx.note||tx.category||"ללא תיאור")}</div>
-             <div class="candidate-meta">${(tx.date||"").slice(0,10)} · Spendee ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
+             <div class="candidate-meta">${(tx.date||"").slice(0,10)} · באפליקציה ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
              ${related?`<span class="credit-related-badge">קשור לסיווג ${escapeHtml(row.auditCategory||"")}</span>`:""}
              <div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div>
            </div>
@@ -10467,7 +10467,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
        }).join("");
    }catch(err){
      console.error("credit candidate render failed",err);
-     return `<div class="alert bad">שגיאה בהצגת עסקאות Spendee: ${escapeHtml(err?.message||String(err))}</div>`;
+     return `<div class="alert bad">שגיאה בהצגת עסקאות: ${escapeHtml(err?.message||String(err))}</div>`;
    }
  };
 
@@ -10577,7 +10577,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     const row=state.creditCardAudit?.rows?.[idx];if(!row)return "";
     try{
       const arr=alpha14Pool(idx,q,allMode);
-      if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות Spendee. נסה „כל העסקאות” או חיפוש חופשי.</div>';
+      if(!arr.length)return '<div class="muted tiny">לא נמצאו עסקאות באפליקציה. נסה „כל העסקאות” או חיפוש חופשי.</div>';
       return `<div class="muted tiny" style="margin-bottom:6px">נמצאו ${arr.length} עסקאות להצגה</div>`+
       arr.map(({tx,related})=>{
         const gap=expenseAmount(tx)-Number(row.amount||0);
@@ -10585,7 +10585,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
         return `<div class="credit-candidate ${related?"related":""}">
           <div class="candidate-main">
             <div class="candidate-title">${escapeHtml(tx.note||tx.category||"ללא תיאור")}</div>
-            <div class="candidate-meta">${(tx.date||"").slice(0,10)} · Spendee ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
+            <div class="candidate-meta">${(tx.date||"").slice(0,10)} · באפליקציה ${fmt(expenseAmount(tx))} · ${escapeHtml(tx.category||"")}</div>
             ${related?`<span class="credit-related-badge">קשור לסיווג ${escapeHtml(row.auditCategory||"")}</span>`:""}
             <div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div>
           </div>
@@ -10594,7 +10594,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       }).join("");
     }catch(err){
       console.error("credit candidate render failed",err);
-      return `<div class="alert bad">שגיאה בהצגת עסקאות Spendee: ${escapeHtml(err?.message||String(err))}</div>`;
+      return `<div class="alert bad">שגיאה בהצגת עסקאות: ${escapeHtml(err?.message||String(err))}</div>`;
     }
   };
 
@@ -10688,7 +10688,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
  creditCandidateRowsHtml=function(idx,q="",allMode=false){
    const row=state.creditCardAudit?.rows?.[idx];if(!row)return"";
    const arr=alpha15Pool(idx,q,allMode);
-   if(!arr.length)return'<div class="muted tiny">לא נמצאו עסקאות Spendee.</div>';
+   if(!arr.length)return'<div class="muted tiny">לא נמצאו עסקאות באפליקציה.</div>';
    return `<div class="muted tiny" style="margin-bottom:6px">נמצאו ${arr.length} עסקאות להצגה</div>`+
    arr.map(({tx,related})=>{
      const gap=expenseAmount(tx)-Number(row.amount||0),enc=encodeURIComponent(txKey(tx));
@@ -10696,7 +10696,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
      return `<div class="credit-candidate ${related?"related":""}">
        <div class="candidate-main">
          <div class="candidate-title">${escapeHtml(tx.note||src||tx.category||"ללא תיאור")}</div>
-         <div class="candidate-meta">${(tx.date||"").slice(0,10)} · Spendee ${fmt(expenseAmount(tx))}</div>
+         <div class="candidate-meta">${(tx.date||"").slice(0,10)} · באפליקציה ${fmt(expenseAmount(tx))}</div>
          <div class="spendee-source-line">קטגוריית Spendee: <b>${escapeHtml(src||"—")}</b>${mapped&&mapped!==src?` · באפליקציה: ${escapeHtml(mapped)}`:""}</div>
          ${related?`<span class="credit-related-badge">קשור לסיווג ${escapeHtml(row.auditCategory||"")}</span>`:""}
          <div class="candidate-gap">פער מול האשראי: ${gap>=0?"+":""}${fmt(gap)}</div>
@@ -10845,7 +10845,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     if(!row)return"";
     try{
       const arr=a16Pool(idx,q,allMode?"all":"category");
-      if(!arr.length)return'<div class="muted tiny">לא נמצאו עסקאות Spendee.</div>';
+      if(!arr.length)return'<div class="muted tiny">לא נמצאו עסקאות באפליקציה.</div>';
       return `<div class="muted tiny" style="margin-bottom:6px">נמצאו ${arr.length} עסקאות להצגה</div>`+
       arr.map(({tx,related})=>{
         const gap=expenseAmount(tx)-Number(row.amount||0);
@@ -12656,7 +12656,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
           push({
             sev:"warn",
             title:`${openCredit.length} עסקאות אשראי לא מותאמות`,
-            body:"בלי סגירת ההתאמה מול Spendee — התקציב עלול להציג סכומים לא מדויקים.",
+            body:"בלי סגירת ההתאמה מול דוח האשראי — התקציב עלול להציג סכומים לא מדויקים.",
             actionLabel:"הגדרות",
             action:()=>{ showPage("settings"); setTimeout(()=>$("creditAuditCard")?.scrollIntoView({behavior:"smooth"}),120); }
           });
