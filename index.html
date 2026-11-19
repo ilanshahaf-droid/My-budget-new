@@ -3249,7 +3249,8 @@ completion is excluded from all analytical totals, preventing double-counting.
   </details>
  </div>
 
- <div class="card"><b>ייבוא מ־Spendee</b><div class="muted tiny" style="margin:6px 0 10px">קובץ CSV בלבד (לא Excel)</div>
+ <!-- Spendee import is retired (all entries are made in-app since Nov 2026). The card stays in the DOM, hidden, because other code references #csvFile / #importStatus; stored Spendee history is untouched. -->
+ <div class="card" id="spendeeImportCard" style="display:none"><b>ייבוא מ־Spendee</b><div class="muted tiny" style="margin:6px 0 10px">קובץ CSV בלבד (לא Excel)</div>
  <div class="row" style="gap:8px;flex-wrap:wrap">
    <label class="filebtn">ייבוא CSV מ־Spendee<input id="csvFile" type="file" accept=".csv,text/csv"></label>
    <button id="undoSpendeeImportBtn" class="secondary" type="button" onclick="undoLastSpendeeImport()" disabled>↩ ביטול ייבוא Spendee אחרון</button>
