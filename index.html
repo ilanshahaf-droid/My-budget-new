@@ -3255,6 +3255,7 @@ completion is excluded from all analytical totals, preventing double-counting.
   <div id="alimonyNow" style="margin-bottom:10px"></div>
   <div class="row" style="gap:8px;flex-wrap:wrap">
    <button type="button" onclick="alimonyFetchIndices()">⬇️ טען מדדים מהלמ"ס</button>
+   <button type="button" class="secondary" onclick="alimonyVerifyCbs()">🔎 אמת מול מחשבון הלמ"ס</button>
    <button class="secondary" type="button" onclick="alimonyApplyBudget()">החל על תקציב "מזונות"</button>
   </div>
   <div id="alimonyStatus" class="muted tiny" style="margin-top:8px"></div>
@@ -3265,7 +3266,7 @@ completion is excluded from all analytical totals, preventing double-counting.
     <label class="tiny">תחילת ההצמדה <input id="alimStart" type="date"></label>
     <label class="tiny">עדכון כל (חודשים) <input id="alimEvery" type="number" min="1" max="12" step="1" inputmode="numeric"></label>
     <label class="tiny">המדד לפי <select id="alimLag"><option value="2">מדד ידוע (המדד האחרון שפורסם בתאריך העדכון)</option><option value="1">מדד שפורסם בחודש שלפני העדכון</option><option value="0">מדד בגין חודש העדכון</option></select></label>
-    <label class="tiny" style="display:flex;gap:6px;align-items:center"><input id="alimFloor" type="checkbox"> הסכום לא יורד מתחת לסכום הבסיס (הצמדה כלפי מעלה בלבד)</label>
+    <label class="tiny" style="display:flex;gap:6px;align-items:center"><input id="alimFloor" type="checkbox"> הסכום לא יורד לעולם: במדד שלילי נשאר הסכום הקודם (כמו בהסכם)</label>
     <button class="secondary" type="button" onclick="alimonySaveCfg()">שמור הגדרות</button>
    </div>
   </details>
@@ -13795,15 +13796,16 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     var baseKey=indexKeyFor(start,lag), baseIdx=Number(c.indices[baseKey]);
     res.baseKey=baseKey; res.baseIndex=baseIdx>0?baseIdx:null;
     res.rows.push({date:start,key:baseKey,index:baseIdx>0?baseIdx:null,factor:1,amount:Math.round(c.baseAmount*100)/100,status:"base"});
-    var blocked=!(baseIdx>0);
+    var blocked=!(baseIdx>0), prevAmt=Math.round(c.baseAmount*100)/100;
     for(var k=1;k<600;k++){
       var d=addMonths(start,k*every);
       var key=indexKeyFor(d,lag), idx=Number(c.indices[key]);
       var future=d>today;
       var row={date:d,key:key,index:idx>0?idx:null,factor:null,amount:null,status:future?"future":"due"};
       if(!blocked&&idx>0){
-        var f=idx/baseIdx, raw=c.baseAmount*f, amt=c.floorAtBase?Math.max(c.baseAmount,raw):raw;
+        var f=idx/baseIdx, raw=c.baseAmount*f, amt=c.floorAtBase?Math.max(prevAmt,raw):raw; /* ההסכם: במדד שלילי הסכום לא יורד — לא מתחת לסכום הקודם */
         row.factor=f; row.raw=Math.round(raw*100)/100; row.amount=Math.round(amt*100)/100;
+        row.held=!!(c.floorAtBase&&row.raw<prevAmt); prevAmt=row.amount;
         if(!future) row.status="done";
       }else if(!future){ row.status="missing"; }
       res.rows.push(row);
@@ -13897,7 +13899,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       t+='<div class="row" style="gap:8px;justify-content:space-between;border-bottom:1px solid rgba(0,0,0,.08);padding:4px 0;flex-wrap:wrap">'
         +'<span class="tiny"><b>'+dmy(x.date)+'</b> '+(tag?'<span class="muted">('+tag+')</span>':'')+'</span>'
         +'<span class="tiny muted">מדד '+esc(ymLabel(x.key))+': '+idxCell+' <button class="secondary" type="button" style="padding:2px 8px" onclick="alimonyEditIndex(\''+x.key+'\')">✏️</button></span>'
-        +'<span class="tiny"><b>'+amt+'</b>'+(x.factor!=null&&x.status!=="base"?' <span class="muted">×'+x.factor.toFixed(4)+(c.floorAtBase&&x.raw<c.baseAmount?' (נשאר בסיס)':'')+'</span>':'')+'</span>'
+        +'<span class="tiny"><b>'+amt+'</b>'+(x.factor!=null&&x.status!=="base"?' <span class="muted">×'+x.factor.toFixed(4)+(x.held?' (המדד ירד — נשאר הסכום הקודם)':'')+'</span>':'')+'</span>'
         +'</div>';
     });
     t+='</div>';
@@ -13941,6 +13943,32 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     }catch(e){
       setStatus("לא הצלחתי לטעון מהלמ\"ס ("+(e&&e.message||e)+"). אפשר להזין מדדים ידנית בלוח העדכונים (✏️) לפי נתוני הלמ\"ס.",true);
     }
+  };
+
+  /* אימות מול מחשבון ההצמדה הרשמי של הלמ"ס (API calculator). שתי פרשנויות לתאריכים, ומדווחות שתיהן. */
+  window.alimonyVerifyCbs=async function(){
+    var c=cfg(), r=compute(c,today()), last=null;
+    r.rows.forEach(function(x){ if(x.status==="done") last=x; });
+    if(!last){alert("אין עדיין עדכון מחושב לאימות. טען מדדים קודם.");return}
+    var start=parseDate(c.start);
+    var tries=[
+      {name:"לפי חודשי המדד ("+ymLabel(r.baseKey)+" → "+ymLabel(last.key)+")",from:r.baseKey+"-01",to:last.key+"-01"},
+      {name:"לפי תאריכי ההסכם ("+dmy(start)+" → "+dmy(last.date)+")",from:c.start,to:ym(last.date)+"-"+pad(last.date.getDate())}
+    ];
+    setStatus("בודק מול מחשבון הלמ\"ס…");
+    var out=[],ok=false;
+    for(var i=0;i<tries.length;i++){
+      try{
+        var u="https://api.cbs.gov.il/index/data/calculator/120010?value="+c.baseAmount+"&date="+tries[i].from+"&toDate="+tries[i].to+"&format=json&download=false&lang=en";
+        var resp=await fetch(u,{cache:"no-store"}); if(!resp.ok) throw new Error("שגיאת שרת "+resp.status);
+        var txt=await resp.text(), nums=[];
+        try{ (function w(o){ if(o==null) return; if(typeof o==="number") nums.push(o); else if(typeof o==="object") Object.keys(o).forEach(function(k){ if(/amount|result|value|sum|total/i.test(k)&&Number(o[k])>0) nums.push(Number(o[k])); w(o[k]); }); })(JSON.parse(txt)); }catch(e){}
+        var hit=nums.some(function(n){return Math.abs(n-last.raw)<=0.02});
+        if(hit) ok=true;
+        out.push(tries[i].name+": הלמ\"ס "+(nums.length?nums.map(function(n){return n.toFixed(2)}).filter(function(v,j,a){return a.indexOf(v)===j}).slice(0,4).join(" / "):"תשובה לא מזוהה")+(hit?" ✅ תואם":"")+" · באפליקציה "+last.raw.toFixed(2));
+      }catch(e){ out.push(tries[i].name+": נכשל ("+(e&&e.message||e)+")"); }
+    }
+    setStatus((ok?"✅ התאמה למחשבון הלמ\"ס. ":"⚠️ לא נמצאה התאמה מלאה. ")+out.join(" | "),!ok);
   };
 
   window.alimonyApplyBudget=function(){
