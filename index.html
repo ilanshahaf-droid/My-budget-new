@@ -13962,10 +13962,11 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
         var u="https://api.cbs.gov.il/index/data/calculator/120010?value="+c.baseAmount+"&date="+tries[i].from+"&toDate="+tries[i].to+"&format=json&download=false&lang=en";
         var resp=await fetch(u,{cache:"no-store"}); if(!resp.ok) throw new Error("שגיאת שרת "+resp.status);
         var txt=await resp.text(), nums=[];
-        try{ (function w(o){ if(o==null) return; if(typeof o==="number") nums.push(o); else if(typeof o==="object") Object.keys(o).forEach(function(k){ if(/amount|result|value|sum|total/i.test(k)&&Number(o[k])>0) nums.push(Number(o[k])); w(o[k]); }); })(JSON.parse(txt)); }catch(e){}
+        try{ (function w(o){ if(o==null) return; if(typeof o==="number"){nums.push(o);} else if(typeof o==="string"){ var n=Number(o.replace(/,/g,"")); if(o.trim()!==""&&isFinite(n)) nums.push(n); } else if(typeof o==="object") Object.keys(o).forEach(function(k){ w(o[k]); }); })(JSON.parse(txt)); }catch(e){ (txt.match(/\d[\d,]*\.?\d*/g)||[]).forEach(function(t){var n=Number(t.replace(/,/g,"")); if(isFinite(n)) nums.push(n);}); }
+        window.__alimonyLastCbs=txt;
         var hit=nums.some(function(n){return Math.abs(n-last.raw)<=0.02});
         if(hit) ok=true;
-        out.push(tries[i].name+": הלמ\"ס "+(nums.length?nums.map(function(n){return n.toFixed(2)}).filter(function(v,j,a){return a.indexOf(v)===j}).slice(0,4).join(" / "):"תשובה לא מזוהה")+(hit?" ✅ תואם":"")+" · באפליקציה "+last.raw.toFixed(2));
+        out.push(tries[i].name+": הלמ\"ס "+(hit?"":" תשובה גולמית: "+txt.replace(/\s+/g," ").slice(0,260))+(hit?" ✅ תואם":"")+" · באפליקציה "+last.raw.toFixed(2));
       }catch(e){ out.push(tries[i].name+": נכשל ("+(e&&e.message||e)+")"); }
     }
     setStatus((ok?"✅ התאמה למחשבון הלמ\"ס. ":"⚠️ לא נמצאה התאמה מלאה. ")+out.join(" | "),!ok);
