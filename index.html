@@ -3249,6 +3249,28 @@ completion is excluded from all analytical totals, preventing double-counting.
   </details>
  </div>
 
+ <div class="card" id="alimonyCard">
+  <b>👶 מזונות צמודי מדד</b>
+  <div class="muted tiny" style="margin:6px 0 10px">הצמדה למדד המחירים לצרכן, עדכון כל 3 חודשים. הסכום קבוע בין מועדי העדכון.</div>
+  <div id="alimonyNow" style="margin-bottom:10px"></div>
+  <div class="row" style="gap:8px;flex-wrap:wrap">
+   <button type="button" onclick="alimonyFetchIndices()">⬇️ טען מדדים מהלמ"ס</button>
+   <button class="secondary" type="button" onclick="alimonyApplyBudget()">החל על תקציב "מזונות"</button>
+  </div>
+  <div id="alimonyStatus" class="muted tiny" style="margin-top:8px"></div>
+  <details style="margin-top:10px"><summary>לוח עדכונים והמדדים בשימוש</summary><div id="alimonyTable" style="margin-top:8px"></div></details>
+  <details style="margin-top:8px"><summary>הגדרות ההצמדה</summary>
+   <div id="alimonyCfgBox" style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+    <label class="tiny">סכום בסיס (₪) <input id="alimBase" type="number" step="0.01" inputmode="decimal"></label>
+    <label class="tiny">תחילת ההצמדה <input id="alimStart" type="date"></label>
+    <label class="tiny">עדכון כל (חודשים) <input id="alimEvery" type="number" min="1" max="12" step="1" inputmode="numeric"></label>
+    <label class="tiny">המדד לפי <select id="alimLag"><option value="2">מדד ידוע (המדד האחרון שפורסם בתאריך העדכון)</option><option value="1">מדד שפורסם בחודש שלפני העדכון</option><option value="0">מדד בגין חודש העדכון</option></select></label>
+    <label class="tiny" style="display:flex;gap:6px;align-items:center"><input id="alimFloor" type="checkbox"> הסכום לא יורד מתחת לסכום הבסיס (הצמדה כלפי מעלה בלבד)</label>
+    <button class="secondary" type="button" onclick="alimonySaveCfg()">שמור הגדרות</button>
+   </div>
+  </details>
+ </div>
+
  <!-- Spendee import is retired (all entries are made in-app since Nov 2026). The card stays in the DOM, hidden, because other code references #csvFile / #importStatus; stored Spendee history is untouched. -->
  <div class="card" id="spendeeImportCard" style="display:none"><b>ייבוא מ־Spendee</b><div class="muted tiny" style="margin:6px 0 10px">קובץ CSV בלבד (לא Excel)</div>
  <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -3678,6 +3700,12 @@ function mergeBudgetStates(L,R){
     else if(a&&b&&typeof a==="object"&&typeof b==="object"&&!Array.isArray(a)&&!Array.isArray(b)) st[k]=Object.assign({},b,a);
   });
   out.settings=st;
+  // alimony linkage: newer edit wins, but cached CPI values are unioned
+  if(L.alimony||R.alimony){
+    const a=L.alimony, b=R.alimony;
+    if(a&&b){ const w=(Number(b.modAt||0)>Number(a.modAt||0))?b:a, o=(w===a)?b:a; const m=clone(w); m.indices=Object.assign({},o.indices||{},w.indices||{}); out.alimony=m; }
+    else out.alimony=clone(a||b);
+  }
   if(L.autoBackups) out.autoBackups=L.autoBackups; else delete out.autoBackups;
   return out;
 }
@@ -13727,6 +13755,215 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       else if(++tries>60) clearInterval(t);
     },100);
   }catch(e){}
+})();
+</script>
+<script id="alimony-linkage">
+/* מזונות צמודי מדד — חישוב הצמדה למדד המחירים לצרכן.
+   state.alimony = {baseAmount, start:"YYYY-MM-DD", every, lag, floorAtBase, indices:{"YYYY-MM":value}, indicesSource, fetchedAt, approx, modAt}
+   המדד ה"ידוע" בתאריך עדכון: המדד לחודש (חודש העדכון − 2), כי מדד חודש קודם מתפרסם ב-15 לחודש שאחריו. */
+(function(){
+  "use strict";
+  var DEF={baseAmount:2500,start:"2019-10-03",every:3,lag:2,floorAtBase:true,indices:{},indicesSource:"",fetchedAt:0,approx:0,modAt:0};
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function money(n){return "₪"+Number(n||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+  function pad(n){return (n<10?"0":"")+n}
+  function ym(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)}
+  function dmy(d){return pad(d.getDate())+"."+pad(d.getMonth()+1)+"."+d.getFullYear()}
+  function ymLabel(k){var p=k.split("-");return p[1]+"/"+p[0]}
+  function cfg(){
+    if(!state.alimony||typeof state.alimony!=="object") state.alimony={};
+    var a=state.alimony;
+    Object.keys(DEF).forEach(function(k){ if(a[k]===undefined) a[k]=(k==="indices")?{}:DEF[k]; });
+    if(!a.indices||typeof a.indices!=="object") a.indices={};
+    return a;
+  }
+  function parseDate(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||"");return m?new Date(+m[1],+m[2]-1,+m[3]):null}
+  function addMonths(d,n){
+    var y=d.getFullYear(),m=d.getMonth()+n,day=d.getDate();
+    var last=new Date(y,m+1,0).getDate();
+    return new Date(y,m,Math.min(day,last));
+  }
+  function indexKeyFor(d,lag){return ym(new Date(d.getFullYear(),d.getMonth()-lag,1))}
+  function publishDate(key){var p=key.split("-");return new Date(+p[0],+p[1],15)} // 15th of the following month
+
+  /* Pure engine: returns {rows, current, next, baseKey, baseIndex} */
+  function compute(c,today){
+    var start=parseDate(c.start), res={rows:[],current:null,next:null,baseKey:null,baseIndex:null,error:null};
+    if(!start||!(c.baseAmount>0)){res.error="חסרים סכום בסיס או תאריך תחילה";return res}
+    var every=Math.max(1,Math.round(Number(c.every)||3)), lag=Math.max(0,Math.round(Number(c.lag)));
+    if(isNaN(lag)) lag=2;
+    var baseKey=indexKeyFor(start,lag), baseIdx=Number(c.indices[baseKey]);
+    res.baseKey=baseKey; res.baseIndex=baseIdx>0?baseIdx:null;
+    res.rows.push({date:start,key:baseKey,index:baseIdx>0?baseIdx:null,factor:1,amount:Math.round(c.baseAmount*100)/100,status:"base"});
+    var blocked=!(baseIdx>0);
+    for(var k=1;k<600;k++){
+      var d=addMonths(start,k*every);
+      var key=indexKeyFor(d,lag), idx=Number(c.indices[key]);
+      var future=d>today;
+      var row={date:d,key:key,index:idx>0?idx:null,factor:null,amount:null,status:future?"future":"due"};
+      if(!blocked&&idx>0){
+        var f=idx/baseIdx, raw=c.baseAmount*f, amt=c.floorAtBase?Math.max(c.baseAmount,raw):raw;
+        row.factor=f; row.raw=Math.round(raw*100)/100; row.amount=Math.round(amt*100)/100;
+        if(!future) row.status="done";
+      }else if(!future){ row.status="missing"; }
+      res.rows.push(row);
+      if(future){ res.next=row; break; }
+    }
+    var lastDone=null;
+    for(var i=0;i<res.rows.length;i++){ var r=res.rows[i]; if(r.status==="base"||r.status==="done") lastDone=r; }
+    res.current=lastDone;
+    res.missing=res.rows.filter(function(r){return r.status==="missing"}).map(function(r){return r.key});
+    if(blocked) res.missing.unshift(baseKey);
+    return res;
+  }
+
+  /* Parse the CBS API JSON generically: collect nodes with year+month and a value, chain across base changes. */
+  function parseCbs(json){
+    var nodes=[];
+    (function walk(o){
+      if(!o||typeof o!=="object") return;
+      if(Array.isArray(o)){o.forEach(walk);return}
+      var y=Number(o.year),m=Number(o.month);
+      if(y>1900&&m>=1&&m<=12){
+        var cb=(o.currBase&&typeof o.currBase==="object")?o.currBase:null;
+        var v=Number(cb?cb.value:(o.value!=null?o.value:o.index));
+        var bd=String((cb&&cb.baseDesc)||o.baseDesc||"");
+        var pct=(o.percent!=null&&o.percent!=="")?Number(o.percent):null;
+        if(v>0) nodes.push({y:y,m:m,v:v,bd:bd,pct:pct});
+      }
+      Object.keys(o).forEach(function(k){ if(o[k]&&typeof o[k]==="object") walk(o[k]); });
+    })(json);
+    nodes.sort(function(a,b){return a.y-b.y||a.m-b.m});
+    var seen={},uniq=[];
+    nodes.forEach(function(n){var k=n.y+"-"+pad(n.m); if(!seen[k]){seen[k]=1;uniq.push(n)}});
+    if(!uniq.length) throw new Error("לא נמצאו נתוני מדד בתשובת הלמ\"ס");
+    var out={},approx=0,prev=null,I=null;
+    uniq.forEach(function(n,i){
+      var key=n.y+"-"+pad(n.m);
+      if(i===0){ I=n.v; }
+      else{
+        var consecutive=((prev.y*12+prev.m)+1===(n.y*12+n.m));
+        if(!consecutive) throw new Error("חסר חודש בסדרת המדדים לפני "+ymLabel(key));
+        var ratio=n.v/prev.v, sameBase=(n.bd===prev.bd), pctOk=(n.pct!=null&&isFinite(n.pct));
+        if(sameBase&&(!pctOk||Math.abs(ratio-(1+n.pct/100))<=0.004)) I=I*ratio;      // same base: exact ratio of published values
+        else if(pctOk){ I=I*(1+n.pct/100); approx++; }                                // base change: chain by the published monthly % (rounded)
+        else throw new Error("שינוי בסיס מדד ב-"+ymLabel(key)+" ללא אחוז שינוי לשרשור");
+      }
+      out[key]=Math.round(I*10000)/10000; prev=n;
+    });
+    return {indices:out,approx:approx,count:uniq.length};
+  }
+
+  function today(){return window.__alimonyToday?new Date(window.__alimonyToday):new Date()}
+  function setStatus(t,bad){var e=document.getElementById("alimonyStatus"); if(e){e.textContent=t||"";e.style.color=bad?"#b3261e":""}}
+
+  function render(){
+    var box=document.getElementById("alimonyNow"); if(!box) return;
+    var c=cfg(), r=compute(c,today());
+    // config inputs
+    var set=function(id,v){var e=document.getElementById(id); if(e&&document.activeElement!==e) e[id==="alimFloor"?"checked":"value"]=v};
+    set("alimBase",c.baseAmount); set("alimStart",c.start); set("alimEvery",c.every); set("alimLag",String(c.lag)); set("alimFloor",!!c.floorAtBase);
+    if(r.error){ box.innerHTML='<div class="muted tiny">'+esc(r.error)+'</div>'; return; }
+    var html="";
+    if(r.current){
+      var cur=r.current;
+      html+='<div style="font-size:26px;font-weight:800">'+money(cur.amount)+'</div>'
+          +'<div class="muted tiny">בתוקף מ-'+dmy(cur.date)+(cur.status==="base"?" (סכום הבסיס)":" · מדד "+esc(ymLabel(cur.key))+" · מקדם "+cur.factor.toFixed(4))+'</div>';
+    }else{
+      html+='<div style="font-size:20px;font-weight:700">'+money(c.baseAmount)+' <span class="muted tiny">(בסיס — לא חושב עדיין)</span></div>';
+    }
+    if(r.missing.length){
+      html+='<div class="tiny" style="margin-top:6px;color:#b3261e">חסר מדד ל-'+r.missing.map(ymLabel).join(", ")+' — הסכום הנוכחי עלול להיות לא מעודכן. לחץ "טען מדדים מהלמ"ס" או הזן ידנית בלוח העדכונים.</div>';
+    }
+    if(r.next){
+      var pub=publishDate(r.next.key);
+      html+='<div class="muted tiny" style="margin-top:6px">העדכון הבא: '+dmy(r.next.date)+' (לפי מדד '+esc(ymLabel(r.next.key))+', שמתפרסם בסביבות '+dmy(pub)+')'+(r.next.amount!=null?' · צפוי '+money(r.next.amount):'')+'</div>';
+    }
+    // verification hint against the official CBS calculator
+    var lastD=null; r.rows.forEach(function(x){ if(x.status==="done") lastD=x; });
+    if(lastD&&r.baseIndex){
+      html+='<div class="muted tiny" style="margin-top:6px">בדיקה מול מחשבון ההצמדה של הלמ"ס: סכום '+money(c.baseAmount)+', ממדד '+esc(ymLabel(r.baseKey))+' עד מדד '+esc(ymLabel(lastD.key))+' ⇒ '+money(lastD.raw)+'</div>';
+    }
+    if(c.indicesSource){
+      html+='<div class="muted tiny" style="margin-top:4px">מקור המדדים: '+(c.indicesSource==="cbs"?"הלמ\"ס":"הזנה ידנית")+(c.fetchedAt?" · נטען "+dmy(new Date(c.fetchedAt)):"")+(c.approx?" · "+c.approx+" חודשי שרשור בין בסיסי מדד חושבו לפי אחוז שינוי מעוגל":"")+'</div>';
+    }
+    box.innerHTML=html;
+    // table
+    var t='<div style="display:flex;flex-direction:column;gap:6px">';
+    r.rows.forEach(function(x,i){
+      var idxCell=(x.index!=null)?x.index.toFixed(2):'—';
+      var amt=(x.amount!=null)?money(x.amount):'—';
+      var tag=x.status==="base"?"בסיס":x.status==="future"?"עתידי":x.status==="missing"?"חסר מדד":"";
+      t+='<div class="row" style="gap:8px;justify-content:space-between;border-bottom:1px solid rgba(0,0,0,.08);padding:4px 0;flex-wrap:wrap">'
+        +'<span class="tiny"><b>'+dmy(x.date)+'</b> '+(tag?'<span class="muted">('+tag+')</span>':'')+'</span>'
+        +'<span class="tiny muted">מדד '+esc(ymLabel(x.key))+': '+idxCell+' <button class="secondary" type="button" style="padding:2px 8px" onclick="alimonyEditIndex(\''+x.key+'\')">✏️</button></span>'
+        +'<span class="tiny"><b>'+amt+'</b>'+(x.factor!=null&&x.status!=="base"?' <span class="muted">×'+x.factor.toFixed(4)+(c.floorAtBase&&x.raw<c.baseAmount?' (נשאר בסיס)':'')+'</span>':'')+'</span>'
+        +'</div>';
+    });
+    t+='</div>';
+    var tb=document.getElementById("alimonyTable"); if(tb) tb.innerHTML=t;
+  }
+
+  window.alimonySaveCfg=function(){
+    var c=cfg();
+    var base=Number(document.getElementById("alimBase").value), start=document.getElementById("alimStart").value;
+    var every=Math.round(Number(document.getElementById("alimEvery").value)), lag=Number(document.getElementById("alimLag").value);
+    if(!(base>0)||!parseDate(start)||!(every>=1&&every<=12)){alert("בדוק את סכום הבסיס, תאריך ההתחלה ותדירות העדכון.");return}
+    c.baseAmount=base; c.start=start; c.every=every; c.lag=lag; c.floorAtBase=document.getElementById("alimFloor").checked;
+    c.modAt=Date.now(); save(); render(); setStatus("ההגדרות נשמרו. אם שינית את סוג המדד או תאריך ההתחלה, טען מדדים מחדש מהלמ\"ס.");
+  };
+
+  window.alimonyEditIndex=function(key){
+    var c=cfg(), cur=c.indices[key];
+    var v=prompt("ערך המדד לחודש "+ymLabel(key)+" (באותו בסיס של שאר המדדים; ריק = מחיקה):",cur!=null?cur:"");
+    if(v===null) return;
+    v=String(v).trim().replace(",",".");
+    if(v===""){ delete c.indices[key]; }
+    else{ var n=Number(v); if(!(n>0)){alert("ערך לא תקין");return} c.indices[key]=n; if(c.indicesSource!=="cbs") c.indicesSource="manual"; }
+    c.modAt=Date.now(); save(); render();
+  };
+
+  window.alimonyFetchIndices=async function(){
+    var c=cfg(), start=parseDate(c.start);
+    if(!start){alert("תאריך ההתחלה לא תקין");return}
+    var baseKey=indexKeyFor(start,Math.max(0,Math.round(Number(c.lag)))), p=baseKey.split("-");
+    var url="https://api.cbs.gov.il/index/data/price?id=120010&format=json&download=false&lang=en&coef=true&pagesize=1000&startPeriod="+p[1]+"-"+p[0];
+    setStatus("טוען מדדים מהלמ\"ס…");
+    try{
+      var resp=await fetch(url,{cache:"no-store"});
+      if(!resp.ok) throw new Error("שגיאת שרת "+resp.status);
+      var json=await resp.json();
+      var parsed=parseCbs(json);
+      if(!parsed.indices[baseKey]) throw new Error("מדד בסיס "+ymLabel(baseKey)+" לא נמצא בתשובה");
+      c.indices=parsed.indices; c.indicesSource="cbs"; c.fetchedAt=Date.now(); c.approx=parsed.approx; c.modAt=Date.now();
+      save(); render();
+      setStatus("נטענו "+parsed.count+" מדדים מהלמ\"ס ("+ymLabel(baseKey)+" עד "+ymLabel(Object.keys(parsed.indices).sort().pop())+").");
+    }catch(e){
+      setStatus("לא הצלחתי לטעון מהלמ\"ס ("+(e&&e.message||e)+"). אפשר להזין מדדים ידנית בלוח העדכונים (✏️) לפי נתוני הלמ\"ס.",true);
+    }
+  };
+
+  window.alimonyApplyBudget=function(){
+    var c=cfg(), r=compute(c,today());
+    if(!r.current||r.missing.length){alert("חסר מדד לחישוב הסכום המעודכן. טען מדדים מהלמ\"ס או הזן ידנית, ואז נסה שוב.");return}
+    var amt=r.current.amount;
+    var recs=(state.recurring||[]).filter(function(x){return x&&x.category==="מזונות"&&String(x.type).toLowerCase()==="expense"});
+    if(!confirm("להגדיר את תקציב הקטגוריה \"מזונות\" ל-"+money(amt)+(recs.length?" ולעדכן "+recs.length+" הוצאה/ות חוזרת בקטגוריה (מהחודשים הבאים בלבד)":"")+"?")) return;
+    state.settings=state.settings||{}; state.settings.budgets=state.settings.budgets||{};
+    state.settings.budgets["מזונות"]=amt;
+    recs.forEach(function(x){ x.amount=amt; x.modAt=Date.now(); });
+    save(); try{ if(typeof window.render==="function") window.render(); }catch(e){}
+    setStatus("עודכן: תקציב \"מזונות\" "+money(amt)+(recs.length?" · "+recs.length+" הוצאות חוזרות":"")+".");
+  };
+
+  window.alimonyRender=render;
+  window.__alimony={compute:compute,parseCbs:parseCbs,cfg:cfg,indexKeyFor:indexKeyFor,addMonths:addMonths};
+  // render on load and whenever the settings page is shown
+  try{
+    var _sp=window.showPage;
+    if(typeof _sp==="function") window.showPage=function(n){ var r=_sp.apply(this,arguments); if(n==="settings") try{render()}catch(e){} return r; };
+  }catch(e){}
+  try{ render(); }catch(e){ console.warn("alimony render",e); }
 })();
 </script>
 </body></html>
