@@ -13764,7 +13764,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
    המדד ה"ידוע" בתאריך עדכון: המדד לחודש (חודש העדכון − 2), כי מדד חודש קודם מתפרסם ב-15 לחודש שאחריו. */
 (function(){
   "use strict";
-  var DEF={baseAmount:2500,start:"2019-10-03",every:3,lag:2,floorAtBase:true,indices:{},indicesSource:"",fetchedAt:0,approx:0,modAt:0};
+  var DEF={baseAmount:2500,start:"2019-10-03",every:3,lag:2,floorAtBase:true,indices:{},overrides:{},indicesSource:"",fetchedAt:0,approx:0,modAt:0};
   function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
   function money(n){return "₪"+Number(n||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2})}
   function pad(n){return (n<10?"0":"")+n}
@@ -13776,6 +13776,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     var a=state.alimony;
     Object.keys(DEF).forEach(function(k){ if(a[k]===undefined) a[k]=(k==="indices")?{}:DEF[k]; });
     if(!a.indices||typeof a.indices!=="object") a.indices={};
+    if(!a.overrides||typeof a.overrides!=="object") a.overrides={};
     return a;
   }
   function parseDate(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||"");return m?new Date(+m[1],+m[2]-1,+m[3]):null}
@@ -13796,14 +13797,17 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     var baseKey=indexKeyFor(start,lag), baseIdx=Number(c.indices[baseKey]);
     res.baseKey=baseKey; res.baseIndex=baseIdx>0?baseIdx:null;
     res.rows.push({date:start,key:baseKey,index:baseIdx>0?baseIdx:null,factor:1,amount:Math.round(c.baseAmount*100)/100,status:"base"});
-    var blocked=!(baseIdx>0), prevAmt=Math.round(c.baseAmount*100)/100;
+    var blocked=!(baseIdx>0), prevAmt=Math.round(c.baseAmount*100)/100, anchor=null, ov=c.overrides||{};
     for(var k=1;k<600;k++){
       var d=addMonths(start,k*every);
       var key=indexKeyFor(d,lag), idx=Number(c.indices[key]);
       var future=d>today;
       var row={date:d,key:key,index:idx>0?idx:null,factor:null,amount:null,status:future?"future":"due"};
       if(!blocked&&idx>0){
-        var f=idx/baseIdx, raw=c.baseAmount*f, amt=c.floorAtBase?Math.max(prevAmt,raw):raw; /* ההסכם: במדד שלילי הסכום לא יורד — לא מתחת לסכום הקודם */
+        var f=idx/baseIdx, raw=anchor?anchor.amt*idx/anchor.idx:c.baseAmount*f;
+        if(Number(ov[key])>0){ raw=Number(ov[key]); row.official=true; }
+        if(row.official||!anchor) anchor=row.official?{amt:raw,idx:idx}:anchor;
+        f=raw/c.baseAmount; var amt=c.floorAtBase?Math.max(prevAmt,raw):raw; /* ההסכם: במדד שלילי הסכום לא יורד — לא מתחת לסכום הקודם */
         row.factor=f; row.raw=Math.round(raw*100)/100; row.amount=Math.round(amt*100)/100;
         row.held=!!(c.floorAtBase&&row.raw<prevAmt); prevAmt=row.amount;
         if(!future) row.status="done";
@@ -13899,7 +13903,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       t+='<div class="row" style="gap:8px;justify-content:space-between;border-bottom:1px solid rgba(0,0,0,.08);padding:4px 0;flex-wrap:wrap">'
         +'<span class="tiny"><b>'+dmy(x.date)+'</b> '+(tag?'<span class="muted">('+tag+')</span>':'')+'</span>'
         +'<span class="tiny muted">מדד '+esc(ymLabel(x.key))+': '+idxCell+' <button class="secondary" type="button" style="padding:2px 8px" onclick="alimonyEditIndex(\''+x.key+'\')">✏️</button></span>'
-        +'<span class="tiny"><b>'+amt+'</b>'+(x.factor!=null&&x.status!=="base"?' <span class="muted">×'+x.factor.toFixed(4)+(x.held?' (המדד ירד — נשאר הסכום הקודם)':'')+'</span>':'')+'</span>'
+        +'<span class="tiny"><b>'+amt+'</b>'+(x.factor!=null&&x.status!=="base"?' <span class="muted">×'+x.factor.toFixed(4)+(x.official?' (סכום רשמי)':'')+(x.held?' (המדד ירד — נשאר הסכום הקודם)':'')+(x.status!=="base"&&x.index!=null?' <button class="secondary" type="button" style="padding:2px 8px" title="הזן סכום רשמי ממחשבון הלמ&quot;ס" onclick="alimonyEditAmount(\''+x.key+'\')">🏛️</button>':'')+'</span>':'')+'</span>'
         +'</div>';
     });
     t+='</div>';
@@ -13913,6 +13917,16 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     if(!(base>0)||!parseDate(start)||!(every>=1&&every<=12)){alert("בדוק את סכום הבסיס, תאריך ההתחלה ותדירות העדכון.");return}
     c.baseAmount=base; c.start=start; c.every=every; c.lag=lag; c.floorAtBase=document.getElementById("alimFloor").checked;
     c.modAt=Date.now(); save(); render(); setStatus("ההגדרות נשמרו. אם שינית את סוג המדד או תאריך ההתחלה, טען מדדים מחדש מהלמ\"ס.");
+  };
+
+  window.alimonyEditAmount=function(key){
+    var c=cfg(), cur=c.overrides[key];
+    var v=prompt("הסכום הרשמי ממחשבון ההצמדה של הלמ\"ס לעדכון הזה (מדד "+ymLabel(key)+"). ריק = ביטול והחזרה לחישוב אוטומטי:",cur!=null?cur:"");
+    if(v===null) return;
+    v=String(v).trim().replace(/,/g,"");
+    if(v===""){ delete c.overrides[key]; }
+    else{ var n=Number(v); if(!(n>0)){alert("ערך לא תקין");return} c.overrides[key]=Math.round(n*100)/100; }
+    c.modAt=Date.now(); save(); render();
   };
 
   window.alimonyEditIndex=function(key){
