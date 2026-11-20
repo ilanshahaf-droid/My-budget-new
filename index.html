@@ -2612,6 +2612,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 
 
 <div id="budgetPage" class="page active">
+  <div id="alimonyReminder"></div>
   <div class="modern-month-dashboard">
     <div class="home-month-nav">
       <button type="button" class="home-month-arrow" onclick="homeMonthShift(-1)" aria-label="חודש קודם">‹</button>
@@ -3255,7 +3256,7 @@ completion is excluded from all analytical totals, preventing double-counting.
   <div id="alimonyNow" style="margin-bottom:10px"></div>
   <div class="row" style="gap:8px;flex-wrap:wrap">
    <button type="button" onclick="alimonyFetchIndices()">⬇️ טען מדדים מהלמ"ס</button>
-   <button type="button" class="secondary" onclick="alimonyVerifyCbs()">🔎 אמת מול מחשבון הלמ"ס</button>
+   <button type="button" class="secondary" style="display:none" onclick="alimonyVerifyCbs()">🔎 אמת מול מחשבון הלמ"ס</button>
    <button class="secondary" type="button" onclick="alimonyApplyBudget()">החל על תקציב "מזונות"</button>
   </div>
   <div id="alimonyStatus" class="muted tiny" style="margin-top:8px"></div>
@@ -13764,7 +13765,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
    המדד ה"ידוע" בתאריך עדכון: המדד לחודש (חודש העדכון − 2), כי מדד חודש קודם מתפרסם ב-15 לחודש שאחריו. */
 (function(){
   "use strict";
-  var DEF={baseAmount:2500,start:"2019-10-03",every:3,lag:2,floorAtBase:true,indices:{},overrides:{},indicesSource:"",fetchedAt:0,approx:0,modAt:0};
+  var DEF={baseAmount:2500,start:"2019-10-03",every:3,lag:2,floorAtBase:true,indices:{},overrides:{},applied:{},acked:{},remindFrom:"2026-12-01",indicesSource:"",fetchedAt:0,approx:0,modAt:0};
   function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
   function money(n){return "₪"+Number(n||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2})}
   function pad(n){return (n<10?"0":"")+n}
@@ -13777,6 +13778,8 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     Object.keys(DEF).forEach(function(k){ if(a[k]===undefined) a[k]=(k==="indices")?{}:DEF[k]; });
     if(!a.indices||typeof a.indices!=="object") a.indices={};
     if(!a.overrides||typeof a.overrides!=="object") a.overrides={};
+    if(!a.applied||typeof a.applied!=="object") a.applied={};
+    if(!a.acked||typeof a.acked!=="object") a.acked={};
     return a;
   }
   function parseDate(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||"");return m?new Date(+m[1],+m[2]-1,+m[3]):null}
@@ -13807,7 +13810,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
         var f=idx/baseIdx, raw=anchor?anchor.amt*idx/anchor.idx:c.baseAmount*f;
         if(Number(ov[key])>0){ raw=Number(ov[key]); row.official=true; }
         if(row.official||!anchor) anchor=row.official?{amt:raw,idx:idx}:anchor;
-        f=raw/c.baseAmount; var amt=c.floorAtBase?Math.max(prevAmt,raw):raw; /* ההסכם: במדד שלילי הסכום לא יורד — לא מתחת לסכום הקודם */
+        f=raw/c.baseAmount; var amt=(c.floorAtBase&&!row.official)?Math.max(prevAmt,raw):raw; /* ההסכם: במדד שלילי הסכום לא יורד — לא מתחת לסכום הקודם */
         row.factor=f; row.raw=Math.round(raw*100)/100; row.amount=Math.round(amt*100)/100;
         row.held=!!(c.floorAtBase&&row.raw<prevAmt); prevAmt=row.amount;
         if(!future) row.status="done";
@@ -14015,6 +14018,75 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     setStatus("עודכן: תקציב \"מזונות\" "+money(amt)+(recs.length?" · "+recs.length+" הוצאות חוזרות":"")+".");
   };
 
+
+  /* ---- תזכורות בראש מסך הבית ----
+     חודשית: מ-remindFrom (דצמבר 2026) — להחיל את סכום ההצמדה על המזונות של החודש (עד שהסכום המוחל שווה לסכום הנוכחי).
+     רבעונית: בתאריך העדכון (03.01/04/07/10) — לבדוק במחשבון הלמ"ס ולהזין את הסכום הרשמי, או לאשר את הסכום המחושב. */
+  function currentYm(){return ym(today())}
+  function reminderInfo(){
+    var c=cfg(), t=today(), from=parseDate(c.remindFrom||"2026-12-01");
+    var info={monthly:null,quarterly:null,r:null};
+    if(!from||t<from) return info;
+    var r=compute(c,t); info.r=r;
+    // quarterly
+    var q=null;
+    r.rows.forEach(function(x){ if(x.status!=="base"&&(x.status==="done"||x.status==="missing")&&x.date>=from&&!c.acked[x.key]&&!(Number(c.overrides[x.key])>0)) q=x; });
+    info.quarterly=q;
+    // monthly
+    var m=currentYm();
+    if(r.current&&!r.missing.length&&Number(c.applied[m])!==r.current.amount) info.monthly={ym:m,amount:r.current.amount};
+    return info;
+  }
+  function renderReminder(){
+    var box=document.getElementById("alimonyReminder"); if(!box) return;
+    var info; try{ info=reminderInfo(); }catch(e){ box.innerHTML=""; return; }
+    var c=cfg(), h="";
+    var st='background:#fff7e0;border:1px solid #f0d27a;border-radius:14px;padding:12px;margin:8px 12px;display:flex;flex-direction:column;gap:8px';
+    if(info.quarterly){
+      var q=info.quarterly, calc=(q.amount!=null)?money(q.amount):null;
+      h+='<div style="'+st+'"><b>🏛️ עדכון הצמדה למזונות — '+dmy(q.date)+'</b>'
+        +'<div class="tiny">בדוק במחשבון ההצמדה של הלמ"ס (סכום '+money(c.baseAmount)+', מ-'+dmy(parseDate(c.start))+' עד '+dmy(q.date)+') והזן את הסכום הרשמי.'
+        +(calc?' הסכום שחושב באפליקציה: <b>'+calc+'</b>.':' חסר מדד — לחץ "טען מדדים" בהגדרות.')+'</div>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        +'<a class="secondary" style="padding:8px 12px;border-radius:10px;text-decoration:none;background:#eef1f8;color:inherit" target="_blank" rel="noopener" href="https://www.google.com/search?q=%D7%9E%D7%97%D7%A9%D7%91%D7%95%D7%9F+%D7%94%D7%A6%D7%9E%D7%93%D7%94+%D7%9C%D7%9E%D7%93%D7%93+%D7%94%D7%9E%D7%97%D7%99%D7%A8%D7%99%D7%9D+%D7%9C%D7%A6%D7%A8%D7%9B%D7%9F+%D7%9C%D7%9E%22%D7%A1">פתח מחשבון</a>'
+        +'<button type="button" onclick="alimonyReminderEnter(\''+q.key+'\')">הזן סכום רשמי</button>'
+        +(calc?'<button type="button" class="secondary" onclick="alimonyReminderAck(\''+q.key+'\')">הסכום המחושב תקין</button>':'')
+        +'</div></div>';
+    }
+    if(info.monthly){
+      var mo=info.monthly;
+      h+='<div style="'+st+'"><b>👶 מזונות לחודש '+ymLabel(mo.ym)+'</b>'
+        +'<div class="tiny">להחיל את ההצמדה על סכום המזונות החודשי: <b>'+money(mo.amount)+'</b></div>'
+        +'<div><button type="button" onclick="alimonyReminderApplyMonth()">החל על מזונות החודש</button></div></div>';
+    }
+    box.innerHTML=h;
+  }
+  window.alimonyReminderEnter=function(key){ window.alimonyEditAmount(key); renderReminder(); };
+  window.alimonyReminderAck=function(key){ var c=cfg(); c.acked[key]=Date.now(); c.modAt=Date.now(); save(); render(); renderReminder(); };
+  window.alimonyReminderApplyMonth=function(){
+    var c=cfg(), info=reminderInfo(); if(!info.monthly){renderReminder();return}
+    var amt=info.monthly.amount, m=info.monthly.ym;
+    var recs=(state.recurring||[]).filter(function(x){return x&&x.category==="מזונות"&&String(x.type).toLowerCase()==="expense"});
+    var txs=[]; recs.forEach(function(x){ (state.manual||[]).forEach(function(t){ if(t&&t.recKey===x.id+"|"+m) txs.push(t); }); });
+    if(!confirm("להחיל "+money(amt)+" על מזונות "+ymLabel(m)+"?"+(txs.length?" ההוצאה של החודש תתעדכן מ-"+txs.map(function(t){return money(Math.abs(t.amount))}).join(", ")+".":"")+(recs.length?"":" (לא נמצאה הוצאה חוזרת בקטגוריה \"מזונות\" — יתעדכן רק התקציב.)")) ) return;
+    state.settings=state.settings||{}; state.settings.budgets=state.settings.budgets||{};
+    state.settings.budgets["מזונות"]=amt;
+    recs.forEach(function(x){ x.amount=amt; x.modAt=Date.now(); });
+    txs.forEach(function(t){ t.amount=-amt; t.modAt=Date.now(); });
+    c.applied[m]=amt; c.modAt=Date.now(); save();
+    try{ if(typeof window.render==="function") window.render(); }catch(e){}
+    render(); renderReminder();
+    setStatus("עודכן: מזונות "+ymLabel(m)+" = "+money(amt)+".");
+  };
+  // fetch missing indices quietly once per session when a reminder needs them
+  function autoFetch(){
+    try{
+      var c=cfg(), from=parseDate(c.remindFrom||"2026-12-01"); if(!from||today()<from||window.__alimAutoTried) return;
+      var r=compute(c,today()); if(!r.missing.length) return;
+      window.__alimAutoTried=true; window.alimonyFetchIndices().then(function(){ renderReminder(); });
+    }catch(e){}
+  }
+
   window.alimonyRender=render;
   window.__alimony={compute:compute,parseCbs:parseCbs,cfg:cfg,indexKeyFor:indexKeyFor,addMonths:addMonths};
   // render on load and whenever the settings page is shown
@@ -14023,6 +14095,15 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     if(typeof _sp==="function") window.showPage=function(n){ var r=_sp.apply(this,arguments); if(n==="settings") try{render()}catch(e){} return r; };
   }catch(e){}
   try{ render(); }catch(e){ console.warn("alimony render",e); }
+  window.alimonyReminderRender=renderReminder;
+  window.__alimony.reminderInfo=reminderInfo;
+  try{
+    var _sp2=window.showPage;
+    if(typeof _sp2==="function") window.showPage=function(n){ var r=_sp2.apply(this,arguments); try{renderReminder()}catch(e){} return r; };
+  }catch(e){}
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden){ try{renderReminder(); autoFetch();}catch(e){} } });
+  setTimeout(function(){ try{renderReminder(); autoFetch();}catch(e){} },1500);
+  setTimeout(function(){ try{renderReminder()}catch(e){} },6000);
 })();
 </script>
 </body></html>
