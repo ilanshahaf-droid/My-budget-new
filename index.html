@@ -5012,7 +5012,14 @@ function showPage(name){
  }
 }
 
-function norm(s){return (s||"").trim().replace(/-/g,"–").replace(/\s+/g," ")}
+var __normMemo=null;
+function norm(s){
+ if(typeof s!=="string") return (s||"").trim().replace(/-/g,"–").replace(/\s+/g," ");
+ if(!__normMemo) __normMemo=new Map();
+ let r=__normMemo.get(s);
+ if(r===undefined){ r=s.trim().replace(/-/g,"–").replace(/\s+/g," "); if(__normMemo.size>30000) __normMemo.clear(); __normMemo.set(s,r); }
+ return r;
+}
 function shiftMonth(dateStr,delta){
  const d=new Date(dateStr.slice(0,10)+"T12:00:00");
  d.setMonth(d.getMonth()+delta);
@@ -5717,10 +5724,20 @@ function localCurrentMonthKey(){
  const d=new Date();
  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
 }
+// ביצועים: אינדקס חודש|קטגוריה → סכום, נבנה פעם אחת לכל מערך allTx (נשמר במטמון) במקום סינון של כל התנועות בכל קריאה.
+var __kibIdx=null,__kibIdxRows=null;
 function kibbutzActualForCategory(monthKey,cat){
- return allTx()
-  .filter(x=>(x.type||"").toLowerCase()==="expense" && budgetMonth(x)===monthKey && mapCat(x.category)===cat)
-  .reduce((a,x)=>a+expenseAmount(x),0);
+ const rows=allTx();
+ if(__kibIdxRows!==rows){
+   const m=new Map();
+   rows.forEach(x=>{
+     if(!x||(x.type||"").toLowerCase()!=="expense") return;
+     const k=budgetMonth(x)+"|"+mapCat(x.category);
+     m.set(k,(m.get(k)||0)+expenseAmount(x));
+   });
+   __kibIdx=m; __kibIdxRows=rows;
+ }
+ return __kibIdx.get(monthKey+"|"+cat)||0;
 }
 function legacyKibbutzTotal(monthKey){
  return allTx()
@@ -5889,11 +5906,12 @@ function reconcileKibbutzExpectedExpenses(){
   .filter(e=>e.autoKibbutz===true)
   .forEach(e=>{
     const cat=e.kibbutzCategory||e.name;
-    const actual=kibbutzActualForCategory(e.month,cat);
+    const actualRaw=kibbutzActualForCategory(e.month,cat);
+    const actual=Math.round(actualRaw*100)/100; // ביצועים: סכום עם שבר צף (למשל 1274.7400000000002) גרם לשינוי+שמירה בכל חישוב
 
     if(actual>0){
       if(!Number.isFinite(Number(e.forecastAmount))) e.forecastAmount=Number(e.amount||0);
-      if(Number(e.amount)!==Number(actual) || !e.paid || !e.actualized){
+      if(Math.abs(Number(e.amount)-actual)>0.004 || !e.paid || !e.actualized){
         e.amount=Math.round(actual*100)/100;
         e.actualAmount=e.amount;
         e.paid=true;
