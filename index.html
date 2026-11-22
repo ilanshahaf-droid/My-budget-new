@@ -3287,8 +3287,8 @@ completion is excluded from all analytical totals, preventing double-counting.
  <div class="card" id="kibbutzImportCard">
    <b>ייבוא הוצאות קיבוץ</b>
    <div class="muted tiny" style="margin:6px 0 10px">נוסף לתנועות הקיימות, לא מוחק תנועות קיימות</div>
-   <label class="filebtn">ייבוא CSV הוצאות קיבוץ
-     <input id="kibbutzCsvFile" type="file" accept=".csv,text/csv">
+   <label class="filebtn">ייבוא CSV / Excel הוצאות קיבוץ
+     <input id="kibbutzCsvFile" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
    </label>
    <label class="filebtn" style="margin-top:8px">ייבוא חשבונית קיבוץ (PDF)
      <input id="kibbutzInvoiceFile" type="file" accept=".pdf,application/pdf">
@@ -7733,21 +7733,40 @@ $("creditAuditFile").onchange=async e=>{
  finally{e.target.value=""}
 };
 
-$("kibbutzCsvFile").onchange=e=>{
+/* קובץ Excel של הוצאות קיבוץ (גיליון "פירוט": תאריך, סעיף, כמות, סכום, קטגוריה) → אותו נתיב ייבוא כמו CSV */
+async function kibbutzXlsxToCsv(file){
+ if(!window.XLSX){ if(typeof ensureXlsxLoaded==="function") await ensureXlsxLoaded(); if(!window.XLSX) throw Error("ספריית XLSX לא נטענה. ודא שיש חיבור לאינטרנט ונסה שוב."); }
+ const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+ const names=wb.SheetNames.slice().sort((a,b)=>(b==="פירוט")-(a==="פירוט"));
+ const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+ for(const n of names){
+   const m=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:"",raw:true});
+   const hi=m.findIndex(r=>r.some(c=>String(c).trim()==="סעיף")&&r.some(c=>String(c).trim()==="קטגוריה")&&r.some(c=>/^סכום/.test(String(c).trim())));
+   if(hi<0) continue;
+   const h=m[hi].map(c=>String(c).trim());
+   const iD=h.indexOf("תאריך"), iI=h.indexOf("סעיף"), iC=h.indexOf("קטגוריה"), iA=h.findIndex(c=>/^סכום/.test(c)), iQ=h.indexOf("כמות");
+   const out=["תאריך,קטגוריה,סעיף,הוצאה_ברוטו_₪,החזר_צפוי_₪,עלות_נטו_₪,הערה"]; let n2=0;
+   for(const r of m.slice(hi+1)){
+     const item=String(r[iI]||"").trim(), cat=String(r[iC]||"").trim(), amt=Number(String(r[iA]).replace(/,/g,""));
+     const iso=iD>=0?parseAuditDate(r[iD]):"";
+     if(!item||!cat||!iso||!(amt>0)) continue;   // שורות סיכום/ריקות
+     const qty=iQ>=0&&Number(r[iQ])>0?"כמות "+Number(r[iQ]):"";
+     out.push([iso,q(cat),q(item),amt.toFixed(2),"",amt.toFixed(2),q(qty)].join(",")); n2++;
+   }
+   if(n2) return out.join("\n");
+ }
+ throw Error("לא נמצא גיליון עם העמודות תאריך, סעיף, סכום וקטגוריה.");
+}
+$("kibbutzCsvFile").onchange=async e=>{
  let f=e.target.files[0];
  if(!f)return;
- if(!f.name.toLowerCase().endsWith(".csv")){
-   alert("יש לבחור קובץ CSV של הוצאות קיבוץ.");
-   e.target.value="";
-   return;
- }
- let r=new FileReader();
- r.onload=()=>{
-   try{ingestKibbutzCSV(r.result)}
-   catch(err){alert("לא ניתן לייבא את קובץ הקיבוץ: "+err.message)}
-   finally{e.target.value=""}
- };
- r.readAsText(f,"UTF-8");
+ const name=f.name.toLowerCase();
+ try{
+   if(name.endsWith(".xlsx")||name.endsWith(".xls")){ ingestKibbutzCSV(await kibbutzXlsxToCsv(f)); }
+   else if(name.endsWith(".csv")){ ingestKibbutzCSV((await f.text()).replace(/^\uFEFF/,"")); }
+   else alert("יש לבחור קובץ CSV או Excel של הוצאות קיבוץ.");
+ }catch(err){ alert("לא ניתן לייבא את קובץ הקיבוץ: "+err.message); }
+ finally{ e.target.value=""; }
 }
 /* === Kibbutz invoice PDF import === */
 const KIB_CATS_FIRST=["קיבוץ – הוצאות דירה","קיבוץ – מחיה","הוצאות חינוך","קיבוץ – פנאי ותרבות"];
