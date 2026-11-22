@@ -2613,6 +2613,7 @@ completion is excluded from all analytical totals, preventing double-counting.
 
 <div id="budgetPage" class="page active">
   <div id="alimonyReminder"></div>
+  <div id="eduAlert"></div>
   <div class="modern-month-dashboard">
     <div class="home-month-nav">
       <button type="button" class="home-month-arrow" onclick="homeMonthShift(-1)" aria-label="חודש קודם">‹</button>
@@ -5253,7 +5254,7 @@ function ingestKibbutzCSV(text){
  );
 
  let added=0, skipped=0, totalNet=0;
- const imported=[];
+ const imported=[]; const eduFound={};
 
  rows.slice(1).forEach(r=>{
    const rawDate=(r[iDate]||"").trim();
@@ -5282,6 +5283,9 @@ function ingestKibbutzCSV(text){
      source:"קיבוץ"
    };
 
+   if(mapCat(category)==="הוצאות חינוך"){ // הוצאות חינוך = הוצאה חוזרת; שורת הקיבוץ רק מושווית ואינה נספרת
+     const mk=tx.date.slice(0,7); (eduFound[mk]=eduFound[mk]||[]).push({desc:item,amount:Math.abs(net)}); return;
+   }
    const key=kibbutzImportKey(tx);
    if(existing.has(key)){skipped++;return}
    existing.add(key);
@@ -5289,7 +5293,7 @@ function ingestKibbutzCSV(text){
    totalNet+=net;
  });
 
- if(!imported.length && !skipped) throw Error("לא נמצאו שורות תקינות לייבוא.");
+ if(!imported.length && !skipped && !Object.keys(eduFound).length) throw Error("לא נמצאו שורות תקינות לייבוא.");
 
  state.manual=state.manual.concat(imported);
  state.lastKibbutzImport={
@@ -5298,9 +5302,11 @@ function ingestKibbutzCSV(text){
    skipped,
    totalNet:Number(totalNet.toFixed(2))
  };
+ Object.keys(eduFound).forEach(mk=>{ try{ window.eduIntake(mk,eduFound[mk]); }catch(e){ console.warn("eduIntake",e); } });
  save();
  buildMonths();
  render();
+ try{ window.eduRenderAlert&&window.eduRenderAlert(); }catch(e){}
 
  const status=$("kibbutzImportStatus");
  if(status){
@@ -7800,7 +7806,7 @@ function renderKibbutzInvoicePreview(inv){
  const sum=inv.items.reduce((a,i)=>a+i.total,0);
  const warn=(inv.declared!=null&&Math.abs(inv.declared-sum)>0.015)?`<div style="color:#b91c1c;font-weight:800;margin:6px 0">⚠️ סכום השורות ₪${sum.toFixed(2)} שונה מסה"כ החשבונית ₪${inv.declared.toFixed(2)} — בדוק לפני אישור</div>`:"";
  const rowsHtml=inv.items.map((it,i)=>{
-   const k=kibRuleKey(it.desc), sel=rules[k]||"";
+   const k=kibRuleKey(it.desc), sel=/אופק|גוונים|מרחב|נעורים/.test(it.desc)?"הוצאות חינוך":(rules[k]||"");
    return `<div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(128,128,128,.25)">
      <div><b>${kibEsc(it.desc)}</b><div class="muted tiny">₪${it.total.toFixed(2)}</div></div>
      <select data-kib="${i}" style="min-width:150px"><option value="">בחר קטגוריה…</option><option value="__skip__"${sel==="__skip__"?" selected":""}>⛔ לא לספור (מדווח באפליקציה)</option>${cats.map(c=>`<option value="${kibEsc(c)}"${c===sel?" selected":""}>${kibEsc(c)}</option>`).join("")}</select>
@@ -7817,9 +7823,9 @@ function renderKibbutzInvoicePreview(inv){
 function kibUpdateSum(){
  const inv=_kibInv, el=$("kibInvSum"); if(!inv||!el) return;
  const sels=[...document.querySelectorAll("#kibbutzInvoicePreview select[data-kib]")];
- let inc=0,exc=0;
- inv.items.forEach((it,i)=>{if(sels[i]&&sels[i].value==="__skip__")exc+=it.total;else inc+=it.total});
- el.textContent=`ייספרו: ₪${inc.toFixed(2)} · לא ייספרו: ₪${exc.toFixed(2)}`;
+ let inc=0,exc=0,edu=0;
+ inv.items.forEach((it,i)=>{const v=sels[i]&&sels[i].value; if(v==="__skip__")exc+=it.total; else if(v&&mapCat(v)==="הוצאות חינוך")edu+=it.total; else inc+=it.total});
+ el.textContent=`ייספרו: ₪${inc.toFixed(2)} · לא ייספרו: ₪${exc.toFixed(2)}`+(edu?` · חינוך — יושווה להוצאה החוזרת ולא יתווסף: ₪${edu.toFixed(2)}`:"");
 }
 function saveKibbutzRulesOnly(){
  const inv=_kibInv; if(!inv) return;
@@ -7842,11 +7848,12 @@ function applyKibbutzInvoice(){
  const sameMonth=state.manual.filter(x=>x.source==="קיבוץ"&&(x.date||"").slice(0,7)===ym).length;
  if(sameMonth && !confirm(`כבר יש ${sameMonth} תנועות קיבוץ בחודש הזה (אולי מייבוא CSV). להוסיף את החשבונית בכל זאת?`)) return;
  const existing=new Set(state.manual.filter(x=>x.source==="קיבוץ").map(kibbutzImportKey));
- const imported=[]; let skipped=0, total=0, excluded=0;
+ const imported=[]; let skipped=0, total=0, excluded=0; const eduLines=[];
  inv.items.forEach((it,i)=>{
    const cat=sels[i].value;
    state.kibbutzRules[kibRuleKey(it.desc)]=cat;
    if(cat==="__skip__"){excluded++;return}
+   if(mapCat(cat)==="הוצאות חינוך"){ eduLines.push({desc:norm(it.desc.replace(/\d{1,2}\/\d{2}\b/g,"")),amount:Math.abs(it.total)}); return; }
    const tx={date:inv.iso+"T12:00:00",type:"Expense",category:cat,amount:-Math.abs(it.total),note:norm(it.desc.replace(/\d{1,2}\/\d{2}\b/g,"")),source:"קיבוץ"};
    const key=kibbutzImportKey(tx);
    if(existing.has(key)){skipped++;return}
@@ -7854,7 +7861,9 @@ function applyKibbutzInvoice(){
  });
  state.manual=state.manual.concat(imported);
  state.lastKibbutzImport={when:new Date().toISOString(),count:imported.length,skipped,totalNet:Number(total.toFixed(2))};
+ if(eduLines.length){ try{ window.eduIntake(ym,eduLines); }catch(e){ console.warn("eduIntake",e); } }
  save(); buildMonths(); render();
+ try{ window.eduRenderAlert&&window.eduRenderAlert(); }catch(e){}
  _kibInv=null;
  const st=$("kibbutzImportStatus");
  if(st) st.textContent=`ייבוא חשבונית הושלם: ${imported.length} תנועות נוספו בסך ₪${total.toFixed(2)}`+(skipped?`, ${skipped} כבר היו קיימות`:"")+(excluded?`, ${excluded} שורות לא נספרו (מדווחות באפליקציה)`:"");
@@ -14138,6 +14147,106 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
   document.addEventListener("visibilitychange",function(){ if(!document.hidden){ try{renderReminder(); autoFetch();}catch(e){} } });
   setTimeout(function(){ try{renderReminder(); autoFetch();}catch(e){} },1500);
   setTimeout(function(){ try{renderReminder()}catch(e){} },6000);
+})();
+</script>
+
+<script id="edu-check">
+/* הוצאות חינוך = הוצאה חוזרת (מדווחת ב-1 לחודש). שורות החינוך בחשבונית/קובץ הקיבוץ אינן נספרות פעם נוספת:
+   הן מושוות לסכום המדווח באותו חודש. אין הבדל — לא קורה כלום. יש הבדל — מוצגת התראה בראש מסך הבית עד שמטפלים בה.
+   state.eduChecks[YYYY-MM] = {ym, invoice, lines:[{desc,amount}], status:"open"|"ack", at} */
+(function(){
+  "use strict";
+  var EDU="הוצאות חינוך";
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function money(n){return "₪"+Number(n||0).toLocaleString("he-IL",{minimumFractionDigits:2,maximumFractionDigits:2})}
+  function ymLabel(k){var p=k.split("-");return p[1]+"/"+p[0]}
+  function checks(){ if(!state.eduChecks||typeof state.eduChecks!=="object") state.eduChecks={}; return state.eduChecks; }
+  function isEdu(x){ try{return mapCat(x.category)===EDU}catch(e){return false} }
+  function monthTx(ym){
+    var rep=[],leg=[];
+    (typeof allTx==="function"?allTx():[]).forEach(function(x){
+      if(!x||String(x.type).toLowerCase()!=="expense"||!isEdu(x)) return;
+      if(budgetMonth(x)!==ym) return;
+      (x.source==="קיבוץ"?leg:rep).push(x);
+    });
+    var man=(state.manual||[]).filter(function(m){ return m&&String(m.type).toLowerCase()==="expense"&&isEdu(m)&&budgetMonth(m)===ym; });
+    return {reported:rep,legacy:leg,rawLegacy:man.filter(function(m){return m.source==="קיבוץ"}),rawRep:man.filter(function(m){return m.source!=="קיבוץ"})};
+  }
+  function sum(a){return Math.round(a.reduce(function(t,x){return t+Math.abs(Number(x.amount)||0)},0)*100)/100}
+  function evaluate(c){
+    var t=monthTx(c.ym), rep=sum(t.reported), leg=sum(t.legacy);
+    var diff=Math.round((c.invoice-rep)*100)/100;
+    return {reported:rep,legacy:leg,legacyTx:t.legacy,repTx:t.reported,rawLegacy:t.rawLegacy,rawRep:t.rawRep,diff:diff,ok:Math.abs(diff)<0.01&&t.legacy.length===0};
+  }
+  window.eduIntake=function(ym,lines){
+    var c=checks(), tot=Math.round(lines.reduce(function(a,l){return a+l.amount},0)*100)/100;
+    c[ym]={ym:ym,invoice:tot,lines:lines,status:"open",at:Date.now()};
+    var ev=evaluate(c[ym]);
+    if(ev.ok){ c[ym].status="ok"; var st=document.getElementById("kibbutzImportStatus"); if(st) st.dataset.edu="ok"; }
+    state.modAt=Date.now();
+    return ev;
+  };
+  function view(){
+    var c=checks(), out=[];
+    Object.keys(c).sort().forEach(function(k){
+      var x=c[k]; if(!x||x.status==="ack"||x.status==="ok") return;
+      var ev=evaluate(x);
+      if(ev.ok){ x.status="ok"; return; }
+      out.push({x:x,ev:ev});
+    });
+    return out;
+  }
+  function render(){
+    var box=document.getElementById("eduAlert"); if(!box) return;
+    var items; try{ items=view(); }catch(e){ box.innerHTML=""; return; }
+    var st='background:#fdecea;border:1px solid #f0a8a0;border-radius:14px;padding:12px;margin:8px 12px;display:flex;flex-direction:column;gap:8px';
+    box.innerHTML=items.map(function(it){
+      var x=it.x, ev=it.ev, h='<div style="'+st+'"><b>⚠️ הוצאות חינוך '+ymLabel(x.ym)+' — נמצא הבדל</b><div class="tiny">';
+      if(!ev.repTx.length) h+='לא נמצאה הוצאה חוזרת של "הוצאות חינוך" בחודש הזה. סכום החשבונית: <b>'+money(x.invoice)+'</b>.';
+      else h+='ההוצאה המדווחת: <b>'+money(ev.reported)+'</b> · בחשבונית הקיבוץ: <b>'+money(x.invoice)+'</b>'+(Math.abs(ev.diff)<0.01?' · הסכומים זהים.':' · הפרש: <b>'+money(Math.abs(ev.diff))+'</b> ('+(ev.diff>0?'החשבונית גבוהה יותר':'המדווח גבוה יותר')+').');
+      h+='</div>';
+      if(ev.legacyTx.length) h+='<div class="tiny">⚠️ יש גם '+ev.legacyTx.length+' שורות חינוך שיובאו מהקיבוץ בעבר ('+money(ev.legacy)+') והן נספרות בנוסף להוצאה החוזרת.</div>';
+      h+='<details><summary class="tiny">שורות החינוך בחשבונית</summary><div class="tiny">'+x.lines.map(function(l){return esc(l.desc)+': '+money(l.amount)}).join('<br>')+'</div></details>';
+      h+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      if(ev.repTx.length===1) h+='<button type="button" onclick="eduFixAmount(\''+x.ym+'\')">עדכן את ההוצאה החוזרת ל-'+money(x.invoice)+'</button>';
+      else if(!ev.repTx.length) h+='<button type="button" onclick="eduAddMissing(\''+x.ym+'\')">הוסף '+money(x.invoice)+' להוצאות החודש</button>';
+      if(ev.legacyTx.length) h+='<button type="button" class="secondary" onclick="eduRemoveLegacy(\''+x.ym+'\')">הסר שורות קיבוץ כפולות</button>';
+      h+='<button type="button" class="secondary" onclick="eduAck(\''+x.ym+'\')">טופל — השאר כפי שהוא</button></div></div>';
+      return h;
+    }).join("");
+  }
+  function after(){ try{ if(typeof invalidateAllTxCache==="function") invalidateAllTxCache(); }catch(e){} save(); try{buildMonths();render0();}catch(e){} render(); }
+  function render0(){ if(typeof window.render==="function") window.render(); }
+  window.eduAck=function(ym){ var c=checks(); if(c[ym]){ c[ym].status="ack"; c[ym].ackAt=Date.now(); } save(); render(); };
+  window.eduFixAmount=function(ym){
+    var c=checks()[ym]; if(!c) return; var ev=evaluate(c);
+    if(ev.repTx.length!==1){ alert("יש יותר מדיווח אחד של הוצאות חינוך בחודש הזה. תקן ידנית בלשונית התנועות."); return; }
+    var real=ev.rawRep.length===1?ev.rawRep[0]:null;
+    if(!real){ alert("ההוצאה המדווחת מגיעה מ-Spendee ואי אפשר לעדכן אותה כאן. תקן ידנית."); return; }
+    var rule=real.recKey?(state.recurring||[]).find(function(r){return r&&r.id===String(real.recKey).split("|")[0]}):null;
+    if(!confirm("לעדכן את ההוצאה של "+ymLabel(ym)+" מ-"+money(Math.abs(real.amount))+" ל-"+money(c.invoice)+(rule?" ולעדכן גם את ההוצאה החוזרת לחודשים הבאים?":"?"))) return;
+    real.amount=-c.invoice; real.modAt=Date.now();
+    if(rule){ rule.amount=c.invoice; rule.modAt=Date.now(); }
+    c.status="ok"; after();
+  };
+  window.eduAddMissing=function(ym){
+    var c=checks()[ym]; if(!c) return;
+    if(!confirm("להוסיף הוצאת חינוך של "+money(c.invoice)+" לחודש "+ymLabel(ym)+"?")) return;
+    state.manual=state.manual||[]; state.manual.push({date:ym+"-01T12:00:00",type:"Expense",category:EDU,amount:-c.invoice,note:"הוצאות חינוך (לפי חשבונית קיבוץ)",source:"ידני"});
+    c.status="ok"; after();
+  };
+  window.eduRemoveLegacy=function(ym){
+    var c=checks()[ym]; if(!c) return; var ev=evaluate(c);
+    if(!confirm("להסיר "+ev.legacyTx.length+" שורות חינוך שיובאו מהקיבוץ ב-"+ymLabel(ym)+" ("+money(ev.legacy)+")? ההוצאה החוזרת נשארת. נשמר גיבוי לפני ההסרה.")) return;
+    try{ if(typeof autoBackupBeforeImport==="function") autoBackupBeforeImport("edu-dedupe"); }catch(e){}
+    var rm=new Set(ev.rawLegacy); state.manual=(state.manual||[]).filter(function(m){return !rm.has(m)});
+    after();
+  };
+  window.eduRenderAlert=render;
+  window.__edu={evaluate:evaluate,view:view,checks:checks};
+  try{ var _sp=window.showPage; if(typeof _sp==="function") window.showPage=function(){ var r=_sp.apply(this,arguments); try{render()}catch(e){} return r; }; }catch(e){}
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden) try{render()}catch(e){} });
+  setTimeout(function(){try{render()}catch(e){}},1800); setTimeout(function(){try{render()}catch(e){}},6500);
 })();
 </script>
 </body></html>
