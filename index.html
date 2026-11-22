@@ -9251,6 +9251,8 @@ if ("serviceWorker" in navigator) {
     </div>`;
   }
 
+  window.__qkOpen=window.__qkOpen||new Set();
+  window.qkToggle=function(el,k){ const g=el.parentNode; const o=g.classList.toggle("open"); if(o) window.__qkOpen.add(k); else window.__qkOpen.delete(k); };
   // Kibbutz lines (several per category on the same day) are folded into one expandable row.
   function rc25RowsHtml(rows){
     const buckets=new Map(), out=[];
@@ -9263,7 +9265,8 @@ if ("serviceWorker" in navigator) {
       const total=b.reduce((a,x)=>a+(Number(String(x.amount).replace(/[^\d.]/g,""))||0),0);
       let icon=typeof budgetCatIcon==="function"?budgetCatIcon(r.cat):"🏷️";
       const bg=typeof categoryChipColor==="function"?categoryChipColor(r.cat):"#f3f1fa";
-      out.push(`<div class="qkgrp"><div class="qrow qkhead" onclick="this.parentNode.classList.toggle('open')" role="button" tabindex="0">
+      const gk=(r.date||"")+"|"+r.cat;
+      out.push(`<div class="qkgrp${window.__qkOpen&&window.__qkOpen.has(gk)?" open":""}"><div class="qrow qkhead" onclick="qkToggle(this,'${escapeHtml(gk).replace(/'/g,"&#39;")}')" role="button" tabindex="0">
         <span class="qicon" style="background:${bg}">${icon}</span>
         <div class="qmain"><b dir="auto">${escapeHtml(r.cat)} <span class="qkchev">›</span></b><small>${b.length} פריטים</small></div>
         <span class="qamt" dir="ltr">₪ -${total.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
