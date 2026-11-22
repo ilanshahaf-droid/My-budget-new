@@ -3361,18 +3361,18 @@ const DEFAULTS={
  incomeTarget:18465,savingTarget:500,
  lagRules:{
    incomePrevMonth:["עיריית חיפה","ק.ש.ר"],
-   expensePrevMonth:["הוצאות קיבוץ","קיבוץ – הוצאות דירה","קיבוץ – מחיה","קיבוץ – חינוך","קיבוץ – פנאי ותרבות"]
+   expensePrevMonth:["הוצאות קיבוץ","קיבוץ – הוצאות דירה","קיבוץ – מחיה","הוצאות חינוך","קיבוץ – פנאי ותרבות"]
  },
  budgets:{
- "שכירות + ארנונה":3150,"קיבוץ – הוצאות דירה":650,"קיבוץ – מחיה":1500,"קיבוץ – חינוך":295,"קיבוץ – פנאי ותרבות":200,
- "מזונות":2500,"מסגרות חינוך":1236,"מזון וטואלטיקה":2000,"אוכל בחוץ":800,"דלק":800,"אחזקת רכב":400,
+ "שכירות + ארנונה":3150,"קיבוץ – הוצאות דירה":650,"קיבוץ – מחיה":1500,"הוצאות חינוך":1531,"קיבוץ – פנאי ותרבות":200,
+ "מזונות":2500,"מזון וטואלטיקה":2000,"אוכל בחוץ":800,"דלק":800,"אחזקת רכב":400,
  "רישוי וביטוח רכב":550,"ביטוחים - אילן":500,"טיפול פסיכולוגי":1000,"סיגריות":650,"אלכוהול":200,
  "בילויים":350,"חוגים":450,"ביגוד":250,"אירועים ומתנות":300,"קניות לבית":200,"תרופות ורופאים":300,
  "טלפון":40,"תמי 4":90,"תחבורה":100,"מדיה":120,"שונות":200
  }}
 
 const FIXED_CATEGORIES = new Set([
- "שכירות + ארנונה","שכר דירה","מזונות","מסגרות חינוך",
+ "שכירות + ארנונה","שכר דירה","מזונות","מסגרות חינוך","הוצאות חינוך",
  "קיבוץ – חינוך","קיבוץ – הוצאות דירה","קיבוץ – מחיה",
  "ביטוח רכב","רישוי וביטוח רכב","רישיון וביטוחי רכב","ביטוחי רכב","ביטוחים אחרים",
  "ביטוחים - אילן","ביטוחים – אילן","ביטוחים - ילדים","ביטוחים – ילדים",
@@ -3384,13 +3384,13 @@ function isFixedCategory(c){
   const n=norm(c);
   if(FIXED_CATEGORIES.has(n)) return true;
   // Heuristic: insurance / fixed health / rent-like / committed monthly labels
-  if(/ביטוח|קופת חולים|שכירות|שכר דירה|מזונות|מסגרות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי/.test(n)) return true;
+  if(/ביטוח|קופת חולים|שכירות|שכר דירה|מזונות|מסגרות חינוך|הוצאות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי/.test(n)) return true;
   // Kibbutz core housing/living/education frames are committed
   if(/קיבוץ/.test(n) && /דירה|מחיה|חינוך/.test(n)) return true;
   return false;
 }
 
-const SEED_STATE={"settings":{"incomeTarget":0,"savingTarget":0,"budgets":{"שכירות + ארנונה":0,"קיבוץ – הוצאות דירה":0,"קיבוץ – מחיה":0,"קיבוץ – חינוך":0,"קיבוץ – פנאי ותרבות":0,"מזונות":0,"מסגרות חינוך":0,"מזון וטואלטיקה":0,"אוכל בחוץ":0,"דלק":0,"אחזקת רכב":0,"רישוי וביטוח רכב":0,"ביטוחים - אילן":0,"טיפול פסיכולוגי":0,"סיגריות":0,"אלכוהול":0,"בילויים":0,"חוגים":0,"ביגוד":0,"אירועים ומתנות":0,"קניות לבית":0,"תרופות ורופאים":0,"טלפון":0,"תמי 4":0,"תחבורה":0,"מדיה":0,"שונות":0}},"spendee":[],"manual":[],"lastImport":null};
+const SEED_STATE={"settings":{"incomeTarget":0,"savingTarget":0,"budgets":{"שכירות + ארנונה":0,"קיבוץ – הוצאות דירה":0,"קיבוץ – מחיה":0,"הוצאות חינוך":0,"קיבוץ – פנאי ותרבות":0,"מזונות":0,"מזון וטואלטיקה":0,"אוכל בחוץ":0,"דלק":0,"אחזקת רכב":0,"רישוי וביטוח רכב":0,"ביטוחים - אילן":0,"טיפול פסיכולוגי":0,"סיגריות":0,"אלכוהול":0,"בילויים":0,"חוגים":0,"ביגוד":0,"אירועים ומתנות":0,"קניות לבית":0,"תרופות ורופאים":0,"טלפון":0,"תמי 4":0,"תחבורה":0,"מדיה":0,"שונות":0}},"spendee":[],"manual":[],"lastImport":null};
 let state=JSON.parse(localStorage.getItem("budgetV36")||"null")||JSON.parse(JSON.stringify(SEED_STATE))
 const $=id=>document.getElementById(id), fmt=n=>"₪"+Number(n||0).toLocaleString("he-IL",{maximumFractionDigits:2})
 
@@ -5026,7 +5026,7 @@ function delayedExpenseCats(){ return []; }
 function mapCat(c){
  c=norm(c);
  const map={
- "קיבוץ - הוצאות דירה":"קיבוץ – הוצאות דירה","קיבוץ - מחיה":"קיבוץ – מחיה","קיבוץ - חינוך":"קיבוץ – חינוך","קיבוץ - פנאי ותרבות":"קיבוץ – פנאי ותרבות",
+ "קיבוץ - הוצאות דירה":"קיבוץ – הוצאות דירה","קיבוץ - מחיה":"קיבוץ – מחיה","קיבוץ - חינוך":"הוצאות חינוך","קיבוץ – חינוך":"הוצאות חינוך","מסגרות חינוך":"הוצאות חינוך","קיבוץ - פנאי ותרבות":"קיבוץ – פנאי ותרבות",
  "שכר דירה":"שכירות + ארנונה","רישיון וביטוחי רכב":"ביטוחי רכב","ביטוחים – אילן":"ביטוחים - אילן",
  "חנייה וכבישי אגרה":"תחבורה","קופת חולים – קבוע":"קופת חולים - קבוע","קופת חולים - קבוע":"קופת חולים - קבוע","ביטוחים – ילדים":"ביטוחים - ילדים",
  "טלפון עלמא ויובל":"טלפון","טלפון איילה, עלמא ויובל":"טלפון","כללי":"שונות","אליאקספרס":"קניות לבית"
@@ -5203,10 +5203,11 @@ function mapKibbutzImportCategory(c){
    "פנאי ושונות בקיבוץ":"קיבוץ – פנאי ותרבות",
    "קיבוץ - פנאי ותרבות":"קיבוץ – פנאי ותרבות",
    "קיבוץ – פנאי ותרבות":"קיבוץ – פנאי ותרבות",
-   "בתי ספר":"קיבוץ – חינוך",
-   "חינוך":"קיבוץ – חינוך",
-   "קיבוץ - חינוך":"קיבוץ – חינוך",
-   "קיבוץ – חינוך":"קיבוץ – חינוך"
+   "בתי ספר":"הוצאות חינוך",
+   "חינוך":"הוצאות חינוך",
+   "מסגרות חינוך":"הוצאות חינוך",
+   "קיבוץ - חינוך":"הוצאות חינוך",
+   "קיבוץ – חינוך":"הוצאות חינוך"
  };
  return map[c]||c;
 }
@@ -5214,7 +5215,7 @@ function mapKibbutzImportCategory(c){
 function kibbutzImportKey(x){
  return [
    (x.date||"").slice(0,10),
-   norm(x.category),
+   norm(mapCat(x.category)), // mapCat: אחרי איחוד קטגוריית החינוך, תנועות ישנות וחדשות מקבלות אותו מפתח
    Math.abs(Number(x.amount||0)).toFixed(2),
    norm(x.note),
    "קיבוץ"
@@ -5624,13 +5625,43 @@ function ensureV4State(){
    }
  }
  if(!Array.isArray(state.funds)) state.funds=[];
+ try{ eduMergeMigrate(); }catch(e){ console.warn("eduMerge",e); }
+}
+
+/* איחוד "מסגרות חינוך" + "קיבוץ – חינוך" לקטגוריה אחת: "הוצאות חינוך".
+   תנועות קיימות לא משתנות (המיפוי נעשה בקריאה דרך mapCat, כך שמפתחות הכפילויות לא נפגעים);
+   מתעדכנים התקציב, הוצאות חוזרות, כללי שיוך והוצאות צפויות. אידמפוטנטי. */
+function eduMergeMigrate(){
+ const NEW="הוצאות חינוך", OLD=["מסגרות חינוך","קיבוץ – חינוך","קיבוץ - חינוך"];
+ const st=state; if(!st) return false;
+ let changed=false;
+ const b=st.settings&&st.settings.budgets;
+ if(b){
+   let sum=0, any=false;
+   OLD.forEach(k=>{ if(Object.prototype.hasOwnProperty.call(b,k)){ sum+=Number(b[k])||0; delete b[k]; any=true; } });
+   if(any){ b[NEW]=(Number(b[NEW])||0)+sum; changed=true; }
+ }
+ (st.recurring||[]).forEach(r=>{ if(r&&OLD.includes(r.category)){ r.category=NEW; r.modAt=Date.now(); changed=true; } });
+ const deep=o=>{ if(!o||typeof o!=="object") return; Object.keys(o).forEach(k=>{ const v=o[k]; if(typeof v==="string"){ if(OLD.includes(v)){ o[k]=NEW; changed=true; } } else if(v&&typeof v==="object") deep(v); }); };
+ ["categoryOverrides","kibbutzRules","creditMatchRules","creditAuditRules","spendeeCorrections","txMeta"].forEach(k=>deep(st[k]));
+ (st.expectedExpenses||[]).forEach(e=>{
+   if(!e) return;
+   if(OLD.includes(e.kibbutzCategory)){ e.kibbutzCategory=NEW; changed=true; }
+   if(OLD.includes(e.name)){ e.name=NEW; changed=true; }
+   if(OLD.includes(e.keyword)){ e.keyword=NEW; changed=true; }
+   if(e.autoKibbutz===true && typeof e.keyword==="string" && OLD.map(x=>x.replace(/[\s\u2013-]/g,"")).includes(e.keyword.replace(/[\s\u2013-]/g,""))){ e.keyword=NEW; changed=true; }
+ });
+ if(st.settings&&st.settings.catRenames){ const rn=st.settings.catRenames; OLD.forEach(k=>{ if(rn[k]===undefined) return; }); Object.keys(rn).forEach(k=>{ if(OLD.includes(rn[k])){ rn[k]=NEW; changed=true; } }); }
+ if(changed){ try{ if(typeof invalidateAllTxCache==="function") invalidateAllTxCache(); }catch(e){} }
+ return changed;
 }
 
 const KIBBUTZ_FORECAST_START="2026-09";
+const EDU_CAT="הוצאות חינוך"; // איחוד "מסגרות חינוך" + "קיבוץ – חינוך"
 const KIBBUTZ_FORECAST_CATS=[
  "קיבוץ – הוצאות דירה",
  "קיבוץ – מחיה",
- "קיבוץ – חינוך",
+ EDU_CAT,
  "קיבוץ – פנאי ותרבות"
 ];
 
@@ -5654,7 +5685,10 @@ function legacyKibbutzTotal(monthKey){
   .reduce((a,x)=>a+expenseAmount(x),0);
 }
 function kibbutzBudgetWeight(cat){
- const budgets=(state.settings&&state.settings.budgets)||{};
+ // חלוקת הסכומים ה"ישנים" (לפני ספטמבר 2026) נעשתה לפי תקציב הקיבוץ בלבד; אחרי איחוד קטגוריית החינוך
+ // התקציב המאוחד כולל גם את מסגרות החינוך, לכן שומרים על המשקל הקודם (295) כדי לא לעוות את ההערכה.
+ const budgets=Object.assign({},(state.settings&&state.settings.budgets)||{});
+ if(Number(budgets[EDU_CAT])>0) budgets[EDU_CAT]=295;
  const total=KIBBUTZ_FORECAST_CATS.reduce((a,c)=>a+Number(budgets[c]||0),0);
  return total>0 ? Number(budgets[cat]||0)/total : 1/KIBBUTZ_FORECAST_CATS.length;
 }
@@ -7710,7 +7744,7 @@ $("kibbutzCsvFile").onchange=e=>{
  r.readAsText(f,"UTF-8");
 }
 /* === Kibbutz invoice PDF import === */
-const KIB_CATS_FIRST=["קיבוץ – הוצאות דירה","קיבוץ – מחיה","קיבוץ – חינוך","קיבוץ – פנאי ותרבות"];
+const KIB_CATS_FIRST=["קיבוץ – הוצאות דירה","קיבוץ – מחיה","הוצאות חינוך","קיבוץ – פנאי ותרבות"];
 let _kibInv=null;
 function kibEsc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function kibRuleKey(d){return norm(String(d).replace(/\d{1,2}\/\d{2,4}/g," ").replace(/\d+\s*%/g," ").replace(/\s+/g," "))}
@@ -11024,7 +11058,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
         if(nc==="תכנית חיסכון" || nc==="חיסכון") return;
         if(typeof isFixedCategory==="function" && isFixedCategory(c)) return;
         if(/קיבוץ/.test(nc) && /דירה|מחיה|חינוך/.test(nc)) return;
-        if(/ביטוח|קופת חולים|שכירות|מזונות|מסגרות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי|טלפון|מדיה/.test(nc)) return;
+        if(/ביטוח|קופת חולים|שכירות|מזונות|מסגרות חינוך|הוצאות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי|טלפון|מדיה/.test(nc)) return;
         const s=spent[c]||0; const B=Number(b)||0;
         if(B<=0) return;
         // Variable only: alert on real overrun; near-limit only when remaining buffer is tight in ₪
@@ -12481,7 +12515,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
       const isRigid = (c)=>{
         const nc = typeof norm==="function" ? norm(c) : String(c||"");
         if(typeof isFixedCategory==="function" && isFixedCategory(c)) return true;
-        return /קיבוץ|ביטוח|קופת חולים|שכירות|מזונות|מסגרות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי|טלפון|ארנונה|רישוי/.test(nc);
+        return /קיבוץ|ביטוח|קופת חולים|שכירות|מזונות|מסגרות חינוך|הוצאות חינוך|תמי 4|דמי כיס|סיגריות|טיפול פסיכולוגי|טלפון|ארנונה|רישוי/.test(nc);
       };
 
       // Variable budgets pool
@@ -13230,7 +13264,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
   "use strict";
   const LINK_LS="hetziBudgetLink";            // קורא גם מחצי חצי (אותו דומיין github.io)
   const SUGGEST={"חוגים":"חוגים","בריאות":"תרופות ורופאים","טיפוח וביגוד":"ביגוד","ביגוד":"ביגוד","סלולר":"טלפון",
-    "חינוך":"מסגרות חינוך","פנאי ומתנות":"אירועים ומתנות","ביטוחים":"ביטוחים - ילדים"};
+    "חינוך":"הוצאות חינוך","פנאי ומתנות":"אירועים ומתנות","ביטוחים":"ביטוחים - ילדים"};
   const g=id=>document.getElementById(id);
   const money=n=>"₪"+Number(n||0).toLocaleString("he-IL",{maximumFractionDigits:2});
   const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
