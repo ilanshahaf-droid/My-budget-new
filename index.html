@@ -13423,7 +13423,8 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
   function buildTx(p,cat,hid){
     const half=Math.round(Number(p.amount)*100)/100;
     const who=(p.type==="Expense"?"שילם/ה ":"קיבל/ה ")+(p.payer||"");
-    const note=(p.desc||"")+" (חצי חצי: 50% מ־"+money(p.full)+", "+who+")";
+    const pct=(p.share!=null&&isFinite(Number(p.share)))?Math.round(Number(p.share)*100):50;
+    const note=(p.desc||"")+" (חצי חצי: "+pct+"% מ־"+money(p.full)+", "+who+")";
     return {date:p.date+"T12:00:00",type:p.type,category:cat,amount:p.type==="Expense"?-half:half,note:note.trim(),source:"ידני",hetziId:hid};
   }
   function tomb(sig){ state.manualDeleted=state.manualDeleted||{}; state.manualDeleted[sig]=Date.now(); }
@@ -13666,7 +13667,7 @@ const prevCard=creditAuditCard;creditAuditCard=function(r,idx){let h=prevCard(r,
     h+=recs.map((t,i)=>{
       const o=ownerOf(t.id,r);
       return '<label class="hz-row"><input type="checkbox" data-t="'+i+'"'+(sel.has(t.id)?" checked":"")+'><span><span class="hz-d">'+esc(t.description||"")+'</span>'
-        +'<div class="hz-m">'+esc(recLabel(t))+' · '+esc(t.category||"")+' · מלא '+money(t.amount)+(o?' · <b>משויכת כעת ל־'+esc(ruleName(o))+'</b>'+(sel.has(t.id)?'':' (סימון יעביר אותה לכאן)'):'')+'</div></span>'
+        +'<div class="hz-m">'+esc(recLabel(t))+' · '+esc(t.category||"")+' · מלא '+money(t.full!=null?t.full:t.amount)+(t.share===1?' · על חשבונך בלבד':t.share===0?' · על חשבון ההורה השני':'')+(o?' · <b>משויכת כעת ל־'+esc(ruleName(o))+'</b>'+(sel.has(t.id)?'':' (סימון יעביר אותה לכאן)'):'')+'</div></span>'
         +'<span class="hz-a">'+money(t.amount/2)+'</span></label>';
     }).join("");
     h+='<p class="hz-sub" style="margin-top:12px"><b>סכום בתקציב בחודשים הקרובים:</b><br><span id="hzPrev"></span></p>'
